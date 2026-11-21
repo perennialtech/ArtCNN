@@ -1,0 +1,38 @@
+{
+  "baseline": {
+    "clean_psnr_db": 20.587498749272267,
+    "clean_edge_mae": 0.055022079148329794,
+    "realistic_psnr_db": 19.879690244679704,
+    "realistic_edge_mae": 0.06374885661837955,
+    "flat_fill_err_std": 0.048161446349695325,
+    "temporal_shimmer_mae": 0.02221609450255831,
+    "params": 12340,
+    "macs_per_input_px": 12240,
+    "glsl_passes": 8,
+    "glsl_intermediate_textures": 7
+  },
+  "zero_cost": {
+    "clean_psnr_db": 18.801633397234554,
+    "clean_edge_mae": 0.08591038828793292,
+    "realistic_psnr_db": 18.3392492306109,
+    "realistic_edge_mae": 0.09133143494060884,
+    "flat_fill_err_std": 0.047257080441340804,
+    "temporal_shimmer_mae": 0.018021568849993248,
+    "params": 12340,
+    "macs_per_input_px": 12240,
+    "glsl_passes": 7,
+    "glsl_intermediate_textures": 6
+  },
+  "enhanced": {
+    "clean_psnr_db": 21.299215735896826,
+    "clean_edge_mae": 0.0615727128800548,
+    "realistic_psnr_db": 21.237440037191288,
+    "realistic_edge_mae": 0.06443411008028004,
+    "flat_fill_err_std": 0.010219695512205362,
+    "temporal_shimmer_mae": 0.0016875996104014728,
+    "params": 12340,
+    "macs_per_input_px": 12240,
+    "glsl_passes": 7,
+    "glsl_intermediate_textures": 6
+  }
+}
