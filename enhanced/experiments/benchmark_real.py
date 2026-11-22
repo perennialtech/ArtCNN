@@ -53,6 +53,10 @@ def render_setup(model, width, height, pixel_format, download):
     ]
     if shader:
         options.append(f"custom_shader_path=shaders/{shader}")
+    if os.environ.get("ARTCNN_INTERNAL_VULKAN") == "1":
+        if not download:
+            raise ValueError("GPU-resident timing requires an FFmpeg Vulkan device")
+        return ["-filter_threads", "1"], "libplacebo=" + ":".join(options)
     graph = "hwupload,libplacebo=" + ":".join(options)
     if download:
         graph += f",hwdownload,format={pixel_format}"
@@ -63,7 +67,7 @@ def render_setup(model, width, height, pixel_format, download):
 def validate_log(path, model):
     log = path.read_text(errors="replace")
     device = os.environ.get("ARTCNN_VULKAN_DEVICE", "NVIDIA")
-    if not any("Using device:" in line and device in line for line in log.splitlines()):
+    if not any(device in line and ("Using device:" in line or "Device Name:" in line) for line in log.splitlines()):
         raise RuntimeError(f"Expected Vulkan device {device!r} in {path}")
     if re.search(r"(shader.*(?:error|fail)|(?:error|fail).*shader|disabling.*hook)", log, re.I):
         raise RuntimeError(f"Shader error in {path}")
