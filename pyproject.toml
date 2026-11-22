@@ -2,32 +2,24 @@
 name = "artcnn"
 version = "0.0.0"
 description = "ArtCNN inference, benchmarking, and training scripts"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
-    "numpy",
-    "opencv-python-headless<5; sys_platform != 'darwin' or platform_machine != 'x86_64'",
-    "opencv-python-headless<4.13; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "numpy>=2.5",
+    "opencv-python-headless>=5.1",
     "pillow",
 ]
 
 [dependency-groups]
-inference = [
-    "onnxruntime>=1.24; sys_platform != 'darwin'",
-    # Keep the wheels for macOS 13 and Intel Macs in the lock.
-    "onnxruntime<1.24; sys_platform == 'darwin'",
-]
+inference = ["onnxruntime>=1.32"]
 directml = ["onnxruntime-directml; sys_platform == 'win32' and platform_machine == 'AMD64'"]
-openvino = [
-    "openvino>=2026; sys_platform != 'darwin' or platform_machine != 'x86_64'",
-    "openvino<2026; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-]
+openvino = ["openvino>=2026.4"]
 onnx = ["onnx", "onnxconverter-common"]
 benchmarks = ["matplotlib", "scikit-image", "scipy"]
 training = [
     "onnx",
     "scipy",
-    "torch==2.8.0; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
+    "torch==2.15.0; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
 ]
 dataset = ["tqdm"]
 jax-metrics = ["dm-pix", "jax"]
@@ -35,17 +27,20 @@ jax-metrics = ["dm-pix", "jax"]
 [tool.uv]
 package = false
 default-groups = ["inference"]
+environments = ["sys_platform != 'darwin' or platform_machine == 'arm64'"]
+# Use the published OpenCV wheels, which require macOS 15 or newer.
+no-build-package = ["opencv-python-headless"]
 # Both wheels provide the onnxruntime module.
 conflicts = [[{ group = "inference" }, { group = "directml" }]]
 
 [tool.uv.dependency-groups]
-# The CUDA 12.8 wheels used by the trainer support these Python versions.
-training = { requires-python = ">=3.11,<3.14" }
+# PyTorch's CUDA wheels are available through Python 3.15.
+training = { requires-python = ">=3.12,<3.16" }
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu128" }
+torch = { index = "pytorch-cu134" }
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cu134"
+url = "https://download.pytorch.org/whl/cu134"
 explicit = true
