@@ -1348,7 +1348,7 @@ void hook() {
 }
 
 //!DESC ArtCNN C4F16 (Depth-To-Space)
-//!COMPUTE 24 32 12 16
+//!COMPUTE 12 16 12 16
 //!HOOK LUMA
 //!BIND conv2d_6
 //!WIDTH LUMA.w 2.0 *

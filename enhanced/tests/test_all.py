@@ -145,6 +145,8 @@ def test_glsl_export_and_linear_collapse():
     base_glsl = export_artcnn_glsl(base_model, fuse_depth_to_space=False)
     assert count_shader_passes(base_glsl) == 8
     assert count_intermediate_textures(base_glsl) == 7
+    shuffle_pass = base_glsl.split("(Depth-To-Space)\n", 1)[1]
+    assert shuffle_pass.splitlines()[0] == "//!COMPUTE 12 16 12 16"
 
     enh_model = ArtCNNC(ArtCNNCConfig(filters=16, activation="leaky_relu", input_skip=True))
     enh_glsl = export_artcnn_glsl(enh_model, fuse_depth_to_space=True)

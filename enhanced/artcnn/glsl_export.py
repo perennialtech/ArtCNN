@@ -204,7 +204,7 @@ def _emit_conv_pass(
 def _emit_separate_d2s_pass(prev_name: str, filters_label: int) -> str:
     return "\n".join([
         f"//!DESC ArtCNN C4F{filters_label} (Depth-To-Space)",
-        "//!COMPUTE 24 32 12 16",
+        "//!COMPUTE 12 16 12 16",
         "//!HOOK LUMA",
         f"//!BIND {prev_name}",
         "//!WIDTH LUMA.w 2.0 *",
