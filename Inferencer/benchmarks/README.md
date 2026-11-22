@@ -12,12 +12,13 @@ The upstream control is Artoriuz/ArtCNN at `0837e5326e710f49e2ab0a8d995da0708047
 
 ## Reproduce
 
-Install the [inference dependencies](../README.md#cpu-inference), including `openvino` and `onnx` for the examples below. Install `scipy` and `scikit-image` for quality scoring. Quality scoring also requires FFmpeg with `libx264` and `libx265`.
+Use the locked uv environment from the [inference setup](../README.md#cpu-inference). Select the `benchmarks` group for scoring, `openvino` for that CPU backend, and `onnx` for tiling. Quality scoring also requires FFmpeg with `libx264` and `libx265`.
 
 From the repository root, point `--upstream-engine-dir` at the pinned upstream checkout's `Inferencer/` directory to time its unmodified `Engine` for the `ort` entries.
 
 ```shell
-python Inferencer/benchmarks/performance.py \
+uv run --locked --group benchmarks --group onnx --group openvino \
+  python Inferencer/benchmarks/performance.py \
   --manifest Inferencer/benchmarks/holdout.json --fetch \
   --upstream-engine-dir /path/to/upstream/Inferencer \
   --sizes 960x540 1280x720 --samples 6 --rounds 4 \
@@ -26,7 +27,8 @@ python Inferencer/benchmarks/performance.py \
            ONNX/CPU/ArtCNN_C4F16_Restore.onnx:ort-4,ov-4 \
   --output cpu-performance.jsonl
 
-python Inferencer/benchmarks/quality.py \
+uv run --locked --group benchmarks --group openvino \
+  python Inferencer/benchmarks/quality.py \
   --manifest Inferencer/benchmarks/holdout.json --fetch \
   --models bicubic ONNX/ArtCNN_C4F32_DN.onnx ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
   --output cpu-quality.jsonl

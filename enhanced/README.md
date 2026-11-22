@@ -21,22 +21,19 @@ This directory contains ArtCNN's training, shader export, and quality evaluation
 
 ## Running tests and local ablations
 
-From the repository root, set up an environment for the CPU tools and run the test suite.
+From the repository root, enter `enhanced/` and run the CPU tools in the locked uv project.
 
 ```bash
 cd enhanced
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install numpy scipy 'opencv-python-headless<5'
-PYTHONPATH=. python tests/test_all.py
+PYTHONPATH=. uv run --locked --group benchmarks python tests/test_all.py
 ```
 
-With ONNX and PyTorch installed, run `PYTHONPATH=. python tests/test_pareto.py` from `enhanced/` to verify the shipped shader catalog and fine-tuning paths.
+On x86-64 Linux or Windows, run `PYTHONPATH=. uv run --locked --group training python tests/test_pareto.py` from `enhanced/` to verify the shipped shader catalog and fine-tuning paths. The training group uses the CUDA 12.8 PyTorch wheels on Python 3.11–3.13. Running the trainer requires a compatible NVIDIA GPU and driver.
 
 To rerun the CPU ablations and regenerate the results and shaders, run the following from `enhanced/`.
 
 ```bash
-PYTHONPATH=. python run_ablations.py
+uv run --locked --group benchmarks python run_ablations.py
 ```
 
 See the [ablation results](RESULTS.md) and [ablation shaders](shaders/) for this synthetic-data experiment.

@@ -6,8 +6,8 @@
   - Cosine annealing AdamW + EMA weights
   - Exports a PyTorch checkpoint and a fused mpv GLSL shader
 
-Usage (on a GPU machine with PyTorch installed):
-  python train_pytorch.py --hr-dir /path/to/Anime_Train_HR --filters 32 --epochs 300
+Usage from the repository root with a compatible NVIDIA GPU
+  uv run --locked --group training python enhanced/train_pytorch.py --hr-dir /path/to/Anime_Train_HR --filters 32 --epochs 300
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ def main() -> None:
         from torch.utils.data import DataLoader, Dataset
     except ImportError as exc:
         raise SystemExit(
-            "PyTorch is required for GPU training (`pip install torch`). "
-            "For CPU verification without PyTorch, run `python tests/test_all.py` or `python run_ablations.py`."
+            "GPU training requires PyTorch from the training dependency group (`uv run --group training`). "
+            "See enhanced/README.md for CPU verification commands."
         ) from exc
 
     parser = argparse.ArgumentParser(description="Train Enhanced ArtCNN C-series on GPU")
