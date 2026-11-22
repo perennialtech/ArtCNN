@@ -4,13 +4,13 @@ Zero-dependency ES module runtime and interactive demo for running ArtCNN 2× an
 
 ## Quick start
 
-Open the [live GitHub Pages demo](https://perennialtech.github.io/ArtCNN/), or serve the repository root locally with any static HTTP server and open `Web/demo/`:
+Open the [live GitHub Pages demo](https://perennialtech.github.io/ArtCNN/), or serve the repository root locally with any static HTTP server and open `http://localhost:8000/`:
 
 ```sh
 python3 -m http.server 8000
 ```
 
-Then visit `http://localhost:8000/Web/demo/` in a WebGPU-capable browser (Chrome, Edge, or recent Firefox/Safari). Drop any image or video file onto the viewer to upscale it in real time with a live bilinear vs. ArtCNN split comparison.
+Then visit `http://localhost:8000/` in a WebGPU-capable browser (Chrome, Edge, or recent Firefox/Safari). Drop any image or video file onto the viewer to upscale it in real time with a live bilinear vs. ArtCNN split comparison.
 
 ## Browser model catalog
 
