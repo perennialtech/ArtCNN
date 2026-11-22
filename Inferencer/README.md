@@ -77,3 +77,5 @@ python inferencer.py frames/ -m ../ONNX/ArtCNN_C4F32.onnx --cpu-tile 160 --cpu-t
 ```
 
 Run the CPU regression suite from the repository root with `python -m unittest discover -s Inferencer/tests`. The tiling and OpenVINO tests run when their optional packages are installed.
+
+See the [CPU model directory](../ONNX/CPU/README.md) and [benchmark results](benchmarks/results.md) for measured examples.
