@@ -11,10 +11,10 @@ These FP32 ONNX models accept luma and produce 2× luma output. Use the [inferen
 | [R8F64 Rank16](ArtCNN_R8F64_Rank16.onnx) | Lower-cost R-series model with 16-channel projections |
 | [R8F64 Rank32 Clean](ArtCNN_R8F64_Rank32_Clean.onnx) | R-series model with 32-channel projections tuned for clean sources |
 
-Run from the repository root after installing the [CPU inference dependencies](../../Inferencer/README.md#cpu-inference) and the optional OpenVINO package.
+Run from the repository root with the optional OpenVINO group. See [CPU inference setup](../../Inferencer/README.md#cpu-inference) for the other backends.
 
 ```sh
-python Inferencer/inferencer.py frames/ --model ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
+uv run --locked --group openvino python Inferencer/inferencer.py frames/ --model ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
   --cpu-backend openvino --cpu-threads 4
 ```
 

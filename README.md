@@ -28,11 +28,10 @@ See the [shader catalog](GLSL/Optimized/README.md) for alternatives, including t
 
 ## CPU image upscaling
 
-Run from the repository root with an image or directory. This example uses Restore for compressed or blurred inputs. The inferencer writes PNGs to the working directory.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run from the repository root. uv uses the repository's [Python version](.python-version) and [locked dependencies](uv.lock). This example uses Restore for compressed or blurred inputs and writes PNGs to the working directory.
 
 ```sh
-python -m pip install numpy pillow opencv-python-headless onnxruntime openvino
-python Inferencer/inferencer.py frames/ --model ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
+uv run --locked --group openvino python Inferencer/inferencer.py frames/ --model ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
   --cpu-backend openvino --cpu-threads 4
 ```
 
@@ -47,4 +46,4 @@ The [inferencer guide](Inferencer/README.md) covers ONNX Runtime, tiling for lar
 
 The [GLSL directory](GLSL/README.md) lists the original mpv shaders and experimental YCbCr shaders. The [ONNX directory](ONNX/README.md) describes the upstream luma, chroma, and JPEG models, along with VapourSynth integration.
 
-[Training and export tools](enhanced/README.md) cover real-frame fine-tuning, portable checkpoints, and the earlier ablation experiments. ArtCNN is distributed under the [MIT license](LICENSE).
+[Training and export tools](enhanced/README.md) cover real-frame fine-tuning, portable checkpoints, and the earlier ablation experiments. See [dataset and metric scripts](Scripts/README.md) for the remaining command-line tools. The [upstream notebooks](Notebooks/) use framework-specific notebook runtimes. ArtCNN is distributed under the [MIT license](LICENSE).

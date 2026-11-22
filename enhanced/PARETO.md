@@ -26,37 +26,36 @@ At 720p → 1440p, the FMA C4F32 reached 263.7 FPS versus 92.1 for stock. The FM
 
 ## Reproduce the data and run the benchmark
 
-Use FFmpeg with Vulkan, libplacebo custom shaders, libx264, and libx265. The training path also uses CUDA PyTorch and ONNX. Run the commands in a scratch directory so the manifests, downloaded frames, outputs, and staged shader links stay together.
+Use FFmpeg with Vulkan, libplacebo custom shaders, libx264, and libx265. The `training` group installs ONNX and the CUDA 12.8 PyTorch build on x86-64 Linux or Windows. Run the commands in a scratch directory. `uv run --project` selects the checkout's locked environment and keeps scratch outputs in your working directory.
 
 ```bash
 repo=/path/to/ArtCNN
-python -m pip install numpy scipy pillow scikit-image onnx 'opencv-python-headless<5'
 for split in train dev holdout morevna sol-levante; do
-    python "$repo/enhanced/fetch_pareto_data.py" "$split" data
+    uv run --project "$repo" --locked python "$repo/enhanced/fetch_pareto_data.py" "$split" data
 done
-python "$repo/enhanced/prepare_pareto_data.py" train-pairs data/train-manifest.json
-python "$repo/enhanced/prepare_pareto_data.py" dev-pairs \
+uv run --project "$repo" --locked python "$repo/enhanced/prepare_pareto_data.py" train-pairs data/train-manifest.json
+uv run --project "$repo" --locked python "$repo/enhanced/prepare_pareto_data.py" dev-pairs \
     data/dev-manifest.json data/morevna-manifest.json data/sol-levante-manifest.json --limit 12
 ```
 
 Generate an optimized copy of any of the six upstream neutral, DN, and DS C-series shaders with the same tool.
 
 ```bash
-python "$repo/enhanced/experiments/optimize_stock.py" \
+uv run --project "$repo" --locked python "$repo/enhanced/experiments/optimize_stock.py" \
     "$repo/GLSL/ArtCNN_C4F16.glsl" ArtCNN_C4F16_FusedFMA.glsl --fma
 ```
 
 Regenerate a grouped shader from its checkpoint with the workgroup used in the benchmark.
 
 ```bash
-python "$repo/enhanced/export_pareto.py" \
+uv run --project "$repo" --locked python "$repo/enhanced/export_pareto.py" \
     "$repo/enhanced/pareto/ArtCNN_C4F16_Grouped.npz" ArtCNN_C4F16_Grouped.glsl --workgroup 16 8 --fma
 ```
 
 To train the grouped model from stock weights, use the real-frame pairs prepared above with CUDA PyTorch.
 
 ```bash
-python "$repo/enhanced/train_pareto.py" --train train-pairs --dev dev-pairs --output grouped \
+uv run --project "$repo" --locked --group training python "$repo/enhanced/train_pareto.py" --train train-pairs --dev dev-pairs --output grouped \
     --upstream "$repo/ONNX/ArtCNN_C4F16.onnx" --grouped --recipe balanced --steps 15000 \
     --evaluate-every 2500 --lr 0.00045 --seed 41004
 ```
@@ -69,9 +68,9 @@ shaders=(
   "upstream-f16=$repo/GLSL/ArtCNN_C4F16.glsl"
   "f16-fast=$repo/GLSL/Optimized/ArtCNN_C4F16_FusedFMA.glsl"
 )
-python "$bench" quality --stress --output quality --manifests data/holdout-manifest.json \
+uv run --project "$repo" --locked --group benchmarks python "$bench" quality --stress --output quality --manifests data/holdout-manifest.json \
     --register "${shaders[@]}" --models spline36 upstream-f16 f16-fast
-python "$bench" speed --repeats 3 --output timing --manifests data/sol-levante-manifest.json \
+uv run --project "$repo" --locked --group benchmarks python "$bench" speed --repeats 3 --output timing --manifests data/sol-levante-manifest.json \
     --register "${shaders[@]}" --models spline36 upstream-f16 f16-fast
 ```
 
