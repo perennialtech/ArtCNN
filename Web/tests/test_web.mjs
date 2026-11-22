@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { bilinear2x, rgbaToYCbCrBT709, ycbcrToRgbaBT709 } from "../src/color.js";
+import { bicubicAR2x, bilinear2x, float16ToFloat32, rgbaToYCbCrBT709, ycbcrToRgbaBT709, ycbcrToRgbaBT709Dithered } from "../src/color.js";
 import { CpuUpscaler } from "../src/cpu.js";
 import { OnnxLumaUpscaler } from "../src/onnx.js";
 import {
@@ -175,7 +175,6 @@ test("OnnxLumaUpscaler wraps BT.709 color conversion around an ONNX session", as
   assert.ok(Math.abs(out[0] - 180) <= 1);
 });
 
-import { float16ToFloat32 } from "../src/color.js";
 
 test("float16ToFloat32 decodes IEEE-754 binary16 values accurately", () => {
   // 0.0, -0.0, 1.0, -2.0, 0.5, smallest normal (2^-14)
@@ -224,4 +223,45 @@ test("FP16 bundles match FP32 output closely across dense and grouped models", (
     }
     assert.ok(maxDiff < 2e-3, `${modelId} f16 vs f32 max abs diff ${maxDiff} exceeded 2e-3`);
   }
+});
+
+test("bicubicAR2x preserves constant planes and clamps overshoot on step edges", () => {
+  const w = 8, h = 8;
+  const flat = new Float32Array(w * h).fill(0.42);
+  const upFlat = bicubicAR2x(flat, w, h);
+  assert.equal(upFlat.length, w * 2 * h * 2);
+  for (let i = 0; i < upFlat.length; i++) {
+    assert.ok(Math.abs(upFlat[i] - 0.42) < 1e-5);
+  }
+  // Sharp step edge: 0 on left half, 1 on right half -> anti-ringing must keep values in [0, 1]
+  const step = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      step[y * w + x] = x < 4 ? 0.0 : 1.0;
+    }
+  }
+  const upStep = bicubicAR2x(step, w, h);
+  const upBil = bilinear2x(step, w, h);
+  for (let i = 0; i < upStep.length; i++) {
+    assert.ok(upStep[i] >= 0.0 && upStep[i] <= 1.0, `Anti-ringing violation: ${upStep[i]}`);
+  }
+  // BicubicAR should be sharper than bilinear at the step transition columns (x=7, x=8 in 2x space)
+  const midRow = 4 * (w * 2);
+  assert.ok(upStep[midRow + 7] < upBil[midRow + 7], "Expected sharper left transition than bilinear");
+  assert.ok(upStep[midRow + 8] > upBil[midRow + 8], "Expected sharper right transition than bilinear");
+});
+
+test("ycbcrToRgbaBT709Dithered stays within 1 LSB of undithered output", () => {
+  const w = 16, h = 16;
+  const y = new Float32Array(w * h);
+  const cb = new Float32Array(w * h).fill(0.5);
+  const cr = new Float32Array(w * h).fill(0.5);
+  for (let i = 0; i < w * h; i++) y[i] = i / (w * h - 1);
+  const base = ycbcrToRgbaBT709(y, cb, cr, w, h);
+  const dith = ycbcrToRgbaBT709Dithered(y, cb, cr, w, h);
+  let maxDiff = 0;
+  for (let i = 0; i < base.length; i++) {
+    maxDiff = Math.max(maxDiff, Math.abs(base[i] - dith[i]));
+  }
+  assert.ok(maxDiff <= 1, `Expected <= 1 LSB diff, got ${maxDiff}`);
 });

@@ -238,9 +238,9 @@ export class CpuUpscaler {
   upscaleRgba(rgba, width, height) {
     const { y, cb, cr } = rgbaToYCbCrBT709(rgba, width, height);
     const outY = this.upscaleLuma(y, width, height);
-    const outCb = bilinear2x(cb, width, height);
-    const outCr = bilinear2x(cr, width, height);
-    return ycbcrToRgbaBT709(outY, outCb, outCr, width * 2, height * 2);
+    const outCb = bicubicAR2x(cb, width, height);
+    const outCr = bicubicAR2x(cr, width, height);
+    return ycbcrToRgbaBT709Dithered(outY, outCb, outCr, width * 2, height * 2);
   }
 
   /**
