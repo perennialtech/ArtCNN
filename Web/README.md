@@ -2,9 +2,9 @@
 
 Zero-dependency ES module runtime and interactive demo for running ArtCNN 2× anime upscaling directly in modern browsers using WebGPU compute shaders, with an automatic `Float32Array` CPU fallback and an optional `onnxruntime-web` helper.
 
-## Quick start (local demo)
+## Quick start
 
-Serve the repository root with any static HTTP server and open `Web/demo/`:
+Open the [live GitHub Pages demo](https://perennialtech.github.io/ArtCNN/), or serve the repository root locally with any static HTTP server and open `Web/demo/`:
 
 ```sh
 python3 -m http.server 8000
