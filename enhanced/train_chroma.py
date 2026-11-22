@@ -85,6 +85,8 @@ def main():
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
     device = torch.device("cuda")
     cfg = ChromaConfig(filters=args.filters, internal_layers=args.layers)
     net = LumaGuidedChromaNet(cfg).to(device)

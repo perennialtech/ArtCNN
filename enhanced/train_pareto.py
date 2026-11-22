@@ -477,6 +477,8 @@ def selection_score(metrics: dict, recipe: np.ndarray, mode: str) -> float:
 
 def train(args):
     torch.manual_seed(args.seed)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
     torch.set_num_threads(2)
     torch.backends.cudnn.benchmark = True
     cuda = torch.device("cuda")

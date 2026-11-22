@@ -292,11 +292,10 @@ class DISTS(nn.Module):
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Return scalar mean DISTS distance over batch on [0, 1] tensors (0 = identical)."""
-        use_fp16 = pred.is_cuda
-        with torch.autocast("cuda", dtype=torch.float16, enabled=use_fp16):
-            feats_p = [f.float() for f in self._features(pred.float())]
+        with torch.autocast("cuda", enabled=False):
+            feats_p = self._features(pred.float())
             with torch.no_grad():
-                feats_t = [f.float() for f in self._features(target.float())]
+                feats_t = self._features(target.float())
         alphas = torch.split(self.alpha, self.chns, dim=1)
         betas = torch.split(self.beta, self.chns, dim=1)
         c1, c2 = 1e-6, 1e-6
