@@ -20,6 +20,14 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
+from artcnn.discriminators import (
+    SpectralNormPatchGAN,
+    SpectralNormUNetDiscriminator,
+    feature_matching_loss,
+    gan_d_loss,
+    gan_g_loss,
+    subpixel_shimmer_loss,
+)
 from artcnn.glsl_export import export_artcnn_glsl
 from artcnn.models_np import ArtCNNC, ArtCNNCConfig
 from artcnn.perceptual import (
@@ -418,6 +426,8 @@ def train(args):
     teacher = None
     if args.teacher:
         teacher = load_teacher(args.teacher).to(device=cuda, memory_format=torch.channels_last)
+        if args.teacher_pt:
+            teacher.load_state_dict(torch.load(args.teacher_pt, map_location=cuda, weights_only=True))
         teacher.eval().requires_grad_(False)
 
     lpips_fn = None
@@ -435,6 +445,15 @@ def train(args):
     val = validation_samples(args.dev)
     optim = torch.optim.AdamW(model.parameters(), lr=args.lr, fused=True, weight_decay=0)
     scaler = torch.amp.GradScaler("cuda", init_scale=256)
+    disc = None
+    disc_optim = None
+    disc_scaler = None
+    if args.gan != "none" and (args.gan_weight > 0 or args.fm_weight > 0):
+        disc = (
+            SpectralNormPatchGAN() if args.gan == "patchgan" else SpectralNormUNetDiscriminator()
+        ).to(device=cuda, memory_format=torch.channels_last)
+        disc_optim = torch.optim.AdamW(disc.parameters(), lr=args.d_lr, betas=(0.5, 0.999), fused=True, weight_decay=0)
+        disc_scaler = torch.amp.GradScaler("cuda", init_scale=256)
     rng = np.random.default_rng(args.seed)
     recipe = np.array(RECIPES[args.recipe])
     args.output.mkdir(parents=True, exist_ok=True)
@@ -453,8 +472,9 @@ def train(args):
     for step, (hr, compressed) in enumerate(batches, start=1):
         hr, compressed = tensors(hr, compressed, cuda)
         mode = int(rng.choice(3, p=recipe))
+        sigma_step = float(rng.uniform(0.55, 1.1))
         lr = degradation(
-            hr, compressed, mode, float(rng.uniform(0.55, 1.1)), rng=rng, extended=args.extended_degradation
+            hr, compressed, mode, sigma_step, rng=rng, extended=args.extended_degradation
         ).to(memory_format=torch.channels_last)
         rate = args.lr * (0.12 + 0.88 * (1 + math.cos(math.pi * step / args.steps)) / 2)
         optim.param_groups[0]["lr"] = rate
@@ -474,11 +494,46 @@ def train(args):
             lpips_fn=lpips_fn,
             lpips_weight=args.lpips_weight,
         )
+        if args.shimmer_weight > 0 and mode in (0, 1):
+            with torch.autocast("cuda", dtype=torch.float16):
+                def _down(h_img):
+                    f_img = gaussian(h_img, sigma_step) if mode == 1 else h_img
+                    return quantize(F.avg_pool2d(f_img, 2))
+                value = value + args.shimmer_weight * subpixel_shimmer_loss(model, hr, pred, _down)
+        if disc is not None:
+            disc.requires_grad_(False)
+            p_crop = pred.float().clamp(0.0, 1.0)[:, :, 12:-12, 12:-12]
+            t_crop = hr[:, :, 12:-12, 12:-12]
+            with torch.autocast("cuda", dtype=torch.float16):
+                fake_logits, fake_feats = disc(p_crop)
+                with torch.no_grad():
+                    real_logits, real_feats = disc(t_crop)
+            if args.gan_weight > 0:
+                value = value + args.gan_weight * gan_g_loss(real_logits.float(), fake_logits.float(), args.gan_loss)
+            if args.fm_weight > 0:
+                value = value + args.fm_weight * feature_matching_loss(
+                    [f.float() for f in real_feats], [f.float() for f in fake_feats]
+                )
         scaler.scale(value).backward()
         scaler.unscale_(optim)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(optim)
         scaler.update()
+
+        if disc is not None:
+            disc.requires_grad_(True)
+            disc_optim.zero_grad(set_to_none=True)
+            p_det = pred.detach().float().clamp(0.0, 1.0)[:, :, 12:-12, 12:-12]
+            t_crop = hr[:, :, 12:-12, 12:-12]
+            with torch.autocast("cuda", dtype=torch.float16):
+                r_log, _ = disc(t_crop)
+                f_log, _ = disc(p_det)
+            d_loss = gan_d_loss(r_log.float(), f_log.float(), args.gan_loss)
+            disc_scaler.scale(d_loss).backward()
+            disc_scaler.unscale_(disc_optim)
+            torch.nn.utils.clip_grad_norm_(disc.parameters(), 1.0)
+            disc_scaler.step(disc_optim)
+            disc_scaler.update()
         with torch.no_grad():
             torch._foreach_lerp_(tuple(ema.parameters()), tuple(model.parameters()), max(0.01, 2 / (step + 2)))
         if step % args.evaluate_every == 0 or step == args.steps:
@@ -522,6 +577,13 @@ def main():
     parser.add_argument("--sobel-weight", type=float, default=0.0)
     parser.add_argument("--fft-weight", type=float, default=0.0)
     parser.add_argument("--lpips-weight", type=float, default=0.0)
+    parser.add_argument("--gan", choices=["none", "patchgan", "unet"], default="none")
+    parser.add_argument("--gan-loss", choices=["hinge", "ragan"], default="hinge")
+    parser.add_argument("--gan-weight", type=float, default=0.0)
+    parser.add_argument("--fm-weight", type=float, default=0.0)
+    parser.add_argument("--d-lr", type=float, default=1e-4)
+    parser.add_argument("--shimmer-weight", type=float, default=0.0)
+    parser.add_argument("--teacher-pt", type=Path)
     parser.add_argument("--extended-degradation", action="store_true")
     parser.add_argument("--select-metric", choices=["psnr", "perceptual"], default="psnr")
     parser.add_argument("--evaluate-every", type=int, default=500)
