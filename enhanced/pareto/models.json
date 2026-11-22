@@ -3,46 +3,46 @@
     "f8-fast": {
       "source": "shaders/r8-f8.glsl",
       "file": "../../GLSL/Optimized/ArtCNN_C3F8_Fast.glsl",
-      "sha256": "18d4fbacfcc952ef547ff1fbeabb67eaa425ca47401cc8163826a1c881126dda",
+      "sha256": "6290730e700a623a29996afcdb97dff4d4807ec0afeeb67daae353e650e3cc57",
       "checkpoint": "ArtCNN_C3F8_Fast.npz",
       "workgroup": [
         8,
         8
       ],
-      "benchmarked_sha256": "18d4fbacfcc952ef547ff1fbeabb67eaa425ca47401cc8163826a1c881126dda"
+      "benchmarked_sha256": "6290730e700a623a29996afcdb97dff4d4807ec0afeeb67daae353e650e3cc57"
     },
     "f12-fast": {
       "source": "shaders/f12-fma.glsl",
       "file": "../../GLSL/Optimized/ArtCNN_C3F12_Fast.glsl",
-      "sha256": "b4a149c94dbc95842a6ed72a2e4322152fc372835d3e8e8119a1ee543d56d2b9",
+      "sha256": "6aa60d540b8dd694a629c4fa3c1bb21bde1740770ad6e1c988fe176ffa27506d",
       "checkpoint": "ArtCNN_C3F12_Fast.npz",
       "workgroup": [
         8,
         8
       ],
-      "benchmarked_sha256": "b4a149c94dbc95842a6ed72a2e4322152fc372835d3e8e8119a1ee543d56d2b9"
+      "benchmarked_sha256": "6aa60d540b8dd694a629c4fa3c1bb21bde1740770ad6e1c988fe176ffa27506d"
     },
     "g16-fast": {
       "source": "shaders/g16-fma.glsl",
       "file": "../../GLSL/Optimized/ArtCNN_C4F16_Grouped.glsl",
-      "sha256": "0da4b4cb0f66045dcd0245089b2674983843086619ed4e5ac576ca8b16dd2ed5",
+      "sha256": "5ab57997fd4306d689e69c684c26435999ed794e085c2c7a56dc8c80c38ed423",
       "checkpoint": "ArtCNN_C4F16_Grouped.npz",
       "workgroup": [
         16,
         8
       ],
-      "benchmarked_sha256": "0da4b4cb0f66045dcd0245089b2674983843086619ed4e5ac576ca8b16dd2ed5"
+      "benchmarked_sha256": "5ab57997fd4306d689e69c684c26435999ed794e085c2c7a56dc8c80c38ed423"
     },
     "g32-fast": {
       "source": "shaders/g32-fma.glsl",
       "file": "../../GLSL/Optimized/ArtCNN_C4F32_Grouped.glsl",
-      "sha256": "c97e872d99e8eb2409e90b21ea4d4a24fee7a483b5a97d04aa72ea1a2074e40c",
+      "sha256": "c73ea874e45bb18322a6e5ea98a6d9ea91082f87171ccdab301ed005901a05a5",
       "checkpoint": "ArtCNN_C4F32_Grouped.npz",
       "workgroup": [
         8,
         8
       ],
-      "benchmarked_sha256": "c97e872d99e8eb2409e90b21ea4d4a24fee7a483b5a97d04aa72ea1a2074e40c"
+      "benchmarked_sha256": "c73ea874e45bb18322a6e5ea98a6d9ea91082f87171ccdab301ed005901a05a5"
     },
     "f16-fast": {
       "source": "shaders/ArtCNN_C4F16_8x8_FMA.glsl",
@@ -91,46 +91,46 @@
     "f16-restore": {
       "source": "shaders/f16-restore-fma.glsl",
       "file": "../../GLSL/Optimized/ArtCNN_C4F16_Restore.glsl",
-      "sha256": "7a21793be8ce81e234b83bc029a3b420bd2a3d80100a6454226437764b682b54",
+      "sha256": "85e6a13b6fd12c521e51656a9689b5042363c05aea370018973c26019a9bb201",
       "checkpoint": "ArtCNN_C4F16_Restore.npz",
       "workgroup": [
         8,
         8
       ],
-      "benchmarked_sha256": "7a21793be8ce81e234b83bc029a3b420bd2a3d80100a6454226437764b682b54"
+      "benchmarked_sha256": "85e6a13b6fd12c521e51656a9689b5042363c05aea370018973c26019a9bb201"
     },
     "f32-restore": {
       "source": "shaders/f32-restore-fma.glsl",
       "file": "../../GLSL/Optimized/ArtCNN_C4F32_Restore.glsl",
-      "sha256": "04ba5aa2fbe77c5429dd5be1dd7e5d5a3aa0ff1ca5e1d2698521d5b2dede8221",
+      "sha256": "ddbafc47213ce5be5475645fcb4b908dc478bb51f6feb5a1ae8d25a5e7648e7a",
       "checkpoint": "ArtCNN_C4F32_Restore.npz",
       "workgroup": [
         8,
         8
       ],
-      "benchmarked_sha256": "04ba5aa2fbe77c5429dd5be1dd7e5d5a3aa0ff1ca5e1d2698521d5b2dede8221"
+      "benchmarked_sha256": "ddbafc47213ce5be5475645fcb4b908dc478bb51f6feb5a1ae8d25a5e7648e7a"
     },
     "f16-balanced": {
       "source": "shaders/f16-balanced-fma.glsl",
       "file": "../../GLSL/Optimized/ArtCNN_C4F16_Balanced.glsl",
-      "sha256": "863baa9a21edd9adc45a1811486c6352c080e1c15646330d924f23035e181c77",
+      "sha256": "0d74266539120d22d37a0da994d7efe7ead823b54a2e1097d7c1fe58856ec732",
       "checkpoint": "ArtCNN_C4F16_Balanced.npz",
       "workgroup": [
         8,
         8
       ],
-      "benchmarked_sha256": "863baa9a21edd9adc45a1811486c6352c080e1c15646330d924f23035e181c77"
+      "benchmarked_sha256": "0d74266539120d22d37a0da994d7efe7ead823b54a2e1097d7c1fe58856ec732"
     },
     "f16-clean": {
       "source": "shaders/clean-f16-mix.glsl",
       "file": "../../GLSL/Optimized/ArtCNN_C4F16_Clean.glsl",
-      "sha256": "5cd9f15b10c2595751f1da5ea536da9016e0600bda757e2f3500aa013d199314",
+      "sha256": "6d298c6d52229f5e5c5f4feeefc0df66d5cbff319b2da6940144bc48eb01f16b",
       "checkpoint": "ArtCNN_C4F16_Clean.npz",
       "workgroup": [
         8,
         8
       ],
-      "benchmarked_sha256": "5cd9f15b10c2595751f1da5ea536da9016e0600bda757e2f3500aa013d199314"
+      "benchmarked_sha256": "6d298c6d52229f5e5c5f4feeefc0df66d5cbff319b2da6940144bc48eb01f16b"
     },
     "f16-dn-fast": {
       "source": "GLSL/ArtCNN_C4F16_DN.glsl",

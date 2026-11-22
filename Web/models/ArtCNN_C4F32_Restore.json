@@ -13,10 +13,10 @@
   "input_skip": false,
   "weights_file": "ArtCNN_C4F32_Restore.bin",
   "weights_bytes": 190864,
-  "weights_sha256": "9c7e5bc8027baea475c13821ffbc456f672289c2071a54909980a321d431c80e",
+  "weights_sha256": "dbd5b43ead0a030fd38db32268a664d9306397d3454867fbde59c2d2c7e1f444",
   "weights_f16_file": "ArtCNN_C4F32_Restore.f16.bin",
   "weights_f16_bytes": 95432,
-  "weights_f16_sha256": "c3e37a7cda6da4e2a30ca8f43fbfe6deb85e8f22318ade9dd706ce3b44fea394",
+  "weights_f16_sha256": "e7fbef684c25132f60f91f585e4dff2a26c0ebfa250cac3ce95e5358cc04915d",
   "layers": [
     {
       "kind": "conv_in1",
