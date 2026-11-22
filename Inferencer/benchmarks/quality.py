@@ -77,16 +77,17 @@ def reference_metrics(ref):
     dx = sobel(ref, axis=1) / 8
     dy = sobel(ref, axis=0) / 8
     edge = np.hypot(dx, dy) > 0.04
+    halo = (maximum_filter(edge.astype(np.uint8), size=7) > 0) & (~edge)
     flat = maximum_filter(ref, size=7) - minimum_filter(ref, size=7) < 0.025
-    return ref, dx, dy, edge, flat
+    return ref, dx, dy, edge, halo, flat
 
 
 def score(ref_data, pred):
-    ref, dx, dy, edge, flat = ref_data
+    ref, dx, dy, edge, halo, flat = ref_data
     interior = np.s_[16:-16, 16:-16]
     error = pred - ref
     e = error[interior]
-    edge, flat = edge[interior], flat[interior]
+    edge, halo, flat = edge[interior], halo[interior], flat[interior]
     ref_inner, pred_inner = ref[interior], pred[interior]
     grad_err = np.hypot(sobel(pred, axis=1) / 8 - dx, sobel(pred, axis=0) / 8 - dy)[interior]
     return {
@@ -95,6 +96,7 @@ def score(ref_data, pred):
         "ssim": float(structural_similarity(ref_inner, pred_inner, data_range=1.0, gaussian_weights=True,
                                            sigma=1.5, use_sample_covariance=False)),
         "edge_mae": float(np.mean(grad_err[edge])) if edge.any() else None,
+        "halo_mae": float(np.mean(np.abs(e[halo]))) if halo.any() else None,
         "flat_mae": float(np.mean(np.abs(e[flat]))) if flat.any() else None,
         "bias": float(np.mean(e)),
         "black_fraction": float(np.mean(pred < 1 / 255)),
