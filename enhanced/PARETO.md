@@ -16,9 +16,9 @@ Each stock C-series shader is dominated in each of the four measured conditions.
 | --- | ---: | --- |
 | `ArtCNN_C4F16_FusedFMA` | 325.2 | Stock C4F16 reached 256.6 FPS. The largest change in mean PSNR was 0.010 dB. |
 | `ArtCNN_C4F32_FusedFMA` | 117.7 | Stock C4F32 reached 41.0 FPS. Mean PSNR differed by less than 0.01 dB in each condition. |
-| `ArtCNN_C4F16_Grouped` | 443.9 | Against stock C4F16, blur improved by 0.36 dB and clean input lost 1.32 dB. |
-| `ArtCNN_C3F8_Fast` | 511.7 | Spline36 reached 578.6 FPS. The compact model gained 1.80 dB on clean input and 0.59 dB on H.264. |
-| `ArtCNN_C4F32_Restore` | 117.9 | The strongest stock H.264 result came from C4F32 DS at 40.9 FPS. Restore improved PSNR by 0.24 dB and won 73 of 96 paired frames. |
+| `ArtCNN_C4F16_Grouped` | 440.8 | Against stock C4F16, blur improved by 0.55 dB and clean input lost 1.22 dB. |
+| `ArtCNN_C3F8_Fast` | 510.3 | Spline36 reached 578.6 FPS. The compact model gained 1.92 dB on clean input and 0.61 dB on H.264. |
+| `ArtCNN_C4F32_Restore` | 117.1 | The strongest stock H.264 result came from C4F32 DS at 40.9 FPS. Restore improved H.264 PSNR by 0.16 dB and blur PSNR by 0.40 dB. |
 
 The exact C4F16 and C4F32 versions reached 270.2 and 50.7 FPS. The corresponding DS exact versions reached 271.1 and 50.6 FPS. All four matched stock 16-bit luma on every scored frame. All six FMA presets stayed within 0.013 dB mean PSNR of the corresponding stock preset in every condition. [Frontier chart](pareto/frontier.png) · [Full measurements](pareto/frontier.json)
 
