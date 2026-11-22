@@ -1,6 +1,6 @@
 # ArtCNN for the Browser (WebGPU)
 
-Zero-dependency ES module runtime and interactive demo for running ArtCNN 2× anime upscaling directly in modern browsers using WebGPU compute shaders, with an automatic `Float32Array` CPU fallback and an optional `onnxruntime-web` helper.
+Zero-dependency ES module runtime and interactive demo for running ArtCNN 2× anime upscaling directly in modern browsers using WebGPU compute shaders (with automatic `shader-f16` half-precision downloads when supported), an automatic `Float32Array` CPU fallback, and an optional `onnxruntime-web` helper.
 
 ## Quick start
 
@@ -14,27 +14,28 @@ Then visit `http://localhost:8000/` in a WebGPU-capable browser (Chrome, Edge, o
 
 ## Browser model catalog
 
-The pre-exported bundles in [`Web/models/`](models/) pack each model's FP32 weights into a compact binary blob (`.bin`) plus a JSON manifest (`.json`):
+The pre-exported bundles in [`Web/models/`](models/) ship both FP32 (`.bin`) and half-size FP16 (`.f16.bin`) weights alongside each JSON manifest. On adapters with WebGPU `shader-f16`, `loadModel()` downloads only the `.f16.bin` file and runs half-precision WGSL compute shaders with half the VRAM bandwidth and workgroup shared memory:
 
-| Model | Architecture | Weights | Intended use |
-| --- | --- | ---: | --- |
-| [`ArtCNN_C3F8_Fast`](models/ArtCNN_C3F8_Fast.json) | C3F8 | 11 KB | Lowest GPU cost; ideal for real-time video on integrated GPUs |
-| [`ArtCNN_C4F16_Grouped`](models/ArtCNN_C4F16_Grouped.json) | C4F16 | 20 KB | Grouped 16-channel model for lower compute cost |
-| [`ArtCNN_C4F16_Clean`](models/ArtCNN_C4F16_Clean.json) | C4F16 | 49 KB | Preserve fine detail in clean animation sources |
-| [`ArtCNN_C4F16_Balanced`](models/ArtCNN_C4F16_Balanced.json) | C4F16 | 49 KB | Mixed clean, blurred, and compressed sources |
-| [`ArtCNN_C4F16_Restore`](models/ArtCNN_C4F16_Restore.json) | C4F16 | 49 KB | Restore blurred or compressed sources |
-| [`ArtCNN_C4F32_Restore`](models/ArtCNN_C4F32_Restore.json) | C4F32 | 187 KB | Wider 32-channel restoration model for dedicated GPUs |
+| Model | Architecture | FP16 (`shader-f16`) | FP32 | Intended use |
+| --- | --- | ---: | ---: | --- |
+| [`ArtCNN_C3F8_Fast`](models/ArtCNN_C3F8_Fast.json) | C3F8 | 5.3 KB | 11 KB | Lowest GPU cost; ideal for real-time video on integrated GPUs |
+| [`ArtCNN_C4F16_Grouped`](models/ArtCNN_C4F16_Grouped.json) | C4F16 | 9.8 KB | 20 KB | Grouped 16-channel model for lower compute cost |
+| [`ArtCNN_C4F16_Clean`](models/ArtCNN_C4F16_Clean.json) | C4F16 | 25 KB | 49 KB | Preserve fine detail in clean animation sources |
+| [`ArtCNN_C4F16_Balanced`](models/ArtCNN_C4F16_Balanced.json) | C4F16 | 25 KB | 49 KB | Mixed clean, blurred, and compressed sources |
+| [`ArtCNN_C4F16_Restore`](models/ArtCNN_C4F16_Restore.json) | C4F16 | 25 KB | 49 KB | Restore blurred or compressed sources |
+| [`ArtCNN_C4F32_Restore`](models/ArtCNN_C4F32_Restore.json) | C4F32 | 94 KB | 187 KB | Wider 32-channel restoration model for dedicated GPUs |
 
 ## JavaScript API
 
-### WebGPU (with automatic CPU fallback)
+### WebGPU (with automatic `shader-f16` and CPU fallback)
 
 ```js
 import { createUpscaler } from "./Web/src/index.js";
 
 const upscaler = await createUpscaler({
   modelUrl: "./Web/models/ArtCNN_C4F16_Restore.json",
-  backend: "auto", // "auto" | "webgpu" | "cpu"
+  backend: "auto",   // "auto" | "webgpu" | "cpu"
+  precision: "auto", // "auto" | "f16" | "f32"
 });
 
 // Render an <img>, <video>, <canvas>, or ImageBitmap onto a 2x output canvas:

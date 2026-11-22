@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 perennialtech contributors
 // SPDX-License-Identifier: MIT
 
-import { createUpscaler, loadModel } from "../src/index.js";
+import { createUpscaler, detectWebGPUSupport, loadModel } from "../src/index.js";
 
 const MODELS_BASE = new URL("../models/", import.meta.url);
 
@@ -33,6 +33,7 @@ let currentSource = null;
 let currentVideo = null;
 let videoLoopActive = false;
 let split = 0.5;
+let webgpuSupport = { available: false, f16: false };
 
 function replaceCanvas() {
   // WebGPU and Canvas2D contexts are mutually exclusive per <canvas> element.
@@ -186,19 +187,24 @@ function updateSplitUI() {
   }
 }
 
-async function getModel(entry) {
-  if (!modelCache.has(entry.id)) {
+async function getModel(entry, precision) {
+  const key = `${entry.id}:${precision}`;
+  if (!modelCache.has(key)) {
     const manifestUrl = new URL(entry.manifest, MODELS_BASE).href;
-    const loaded = await loadModel(manifestUrl);
-    modelCache.set(entry.id, loaded);
+    const loaded = await loadModel(manifestUrl, { precision });
+    modelCache.set(key, loaded);
   }
-  return modelCache.get(entry.id);
+  return modelCache.get(key);
 }
 
 async function rebuildUpscaler() {
   const entry = catalog[modelSelect.selectedIndex];
   if (!entry) return;
-  statusText.textContent = `Loading ${entry.label} (${(entry.weights_bytes / 1024).toFixed(0)} KB)...`;
+  const requested = backendSelect.value;
+  const useF16 = requested !== "cpu" && webgpuSupport.f16 && Boolean(entry.weights_f16);
+  const targetPrecision = useF16 ? "f16" : "f32";
+  const dlBytes = useF16 ? entry.weights_f16_bytes : entry.weights_bytes;
+  statusText.textContent = `Loading ${entry.label} (${(dlBytes / 1024).toFixed(1)} KB, ${targetPrecision})...`;
 
   const previousBackend = upscaler?.backend;
   if (upscaler) {
@@ -206,8 +212,7 @@ async function rebuildUpscaler() {
     upscaler = null;
   }
 
-  const model = await getModel(entry);
-  const requested = backendSelect.value;
+  const model = await getModel(entry, targetPrecision);
   let fallbackNotice = "";
   try {
     upscaler = await createUpscaler({ model, backend: requested });
@@ -222,7 +227,7 @@ async function rebuildUpscaler() {
 
   const isGpu = upscaler.backend === "webgpu";
   engineDot.className = `engine-dot ${isGpu ? "webgpu" : "cpu"}`;
-  engineLabel.textContent = isGpu ? "WebGPU" : "CPU";
+  engineLabel.textContent = isGpu ? `WebGPU (${upscaler.precision})` : "CPU";
   rightLabel.textContent = entry.label;
   statusText.textContent = `${fallbackNotice}${entry.description}. Files stay on your device.`;
 
@@ -312,15 +317,20 @@ async function handleFile(file) {
 }
 
 async function init() {
-  const catalogUrl = new URL("catalog.json", MODELS_BASE).href;
-  const res = await fetch(catalogUrl);
+  const [support, res] = await Promise.all([
+    detectWebGPUSupport(),
+    fetch(new URL("catalog.json", MODELS_BASE).href),
+  ]);
+  webgpuSupport = support;
   const data = await res.json();
   catalog = data.models;
 
   for (const entry of catalog) {
     const opt = document.createElement("option");
     opt.value = entry.id;
-    opt.textContent = `${entry.label} (${(entry.weights_bytes / 1024).toFixed(0)} KB)`;
+    const bytes = support.f16 && entry.weights_f16_bytes ? entry.weights_f16_bytes : entry.weights_bytes;
+    const kb = bytes < 10240 ? (bytes / 1024).toFixed(1) : Math.round(bytes / 1024);
+    opt.textContent = `${entry.label} (${kb} KB)`;
     if (entry.id === "ArtCNN_C4F16_Restore") opt.selected = true;
     modelSelect.appendChild(opt);
   }
@@ -407,6 +417,7 @@ async function init() {
     get state() {
       return {
         backend: upscaler?.backend,
+        precision: upscaler?.precision,
         model: catalog[modelSelect.selectedIndex]?.id,
         width: outputCanvas.width,
         height: outputCanvas.height,

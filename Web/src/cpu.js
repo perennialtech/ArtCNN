@@ -7,7 +7,7 @@
  * work on browsers without WebGPU and can be unit-tested in Node.js.
  */
 
-import { bilinear2x, clamp01, rgbaToYCbCrBT709, ycbcrToRgbaBT709 } from "./color.js";
+import { bilinear2x, clamp01, float16ToFloat32, rgbaToYCbCrBT709, ycbcrToRgbaBT709 } from "./color.js";
 
 function applyActivation(v, activation, leakySlope) {
   if (activation === "relu") return v > 0 ? v : 0;
@@ -164,10 +164,24 @@ function convGrouped(inp, width, height, params, gV4, activation, leakySlope) {
 export class CpuUpscaler {
   constructor(model) {
     this.backend = "cpu";
+    this.precision = model.precision === "f16" ? "f16" : "f32";
     this.model = model;
-    this._layerWeights = model.manifest.layers.map(
-      (layer) => new Float32Array(model.weights.buffer, model.weights.byteOffset + layer.byte_offset, layer.byte_length / 4),
-    );
+    const isF16 = this.precision === "f16";
+    this._layerWeights = model.manifest.layers.map((layer) => {
+      if (isF16) {
+        const u16 = new Uint16Array(
+          model.weights.buffer,
+          model.weights.byteOffset + layer.byte_offset_f16,
+          layer.byte_length_f16 / 2,
+        );
+        return float16ToFloat32(u16);
+      }
+      return new Float32Array(
+        model.weights.buffer,
+        model.weights.byteOffset + layer.byte_offset,
+        layer.byte_length / 4,
+      );
+    });
   }
 
   /**

@@ -3,6 +3,7 @@
 
 /**
  * WebGPU real-time ArtCNN 2x upscaler for images and <video> elements.
+ * Supports both core f32 and optional `shader-f16` half-precision pipelines.
  */
 
 import {
@@ -30,10 +31,12 @@ function sourceDimensions(source) {
 }
 
 export class WebGPUUpscaler {
-  constructor(device, model, pipelines, weightBuffers) {
+  constructor(device, model, pipelines, weightBuffers, useF16) {
     this.backend = "webgpu";
+    this.precision = useF16 ? "f16" : "f32";
     this.device = device;
     this.model = model;
+    this._useF16 = useF16;
     this._pipelines = pipelines;
     this._weightBuffers = weightBuffers;
     this._sampler = device.createSampler({
@@ -63,6 +66,7 @@ export class WebGPUUpscaler {
     if (!navigator.gpu) {
       throw new Error("WebGPU is not available in this browser.");
     }
+    const wantF16 = model.precision === "f16";
     const device = options.device || (await (async () => {
       const adapter = await navigator.gpu.requestAdapter({
         powerPreference: options.powerPreference || "high-performance",
@@ -70,8 +74,15 @@ export class WebGPUUpscaler {
       if (!adapter) {
         throw new Error("No compatible WebGPU adapter found.");
       }
-      return adapter.requestDevice();
+      if (wantF16 && !adapter.features.has("shader-f16")) {
+        throw new Error("This WebGPU adapter does not support shader-f16 for FP16 weights.");
+      }
+      return adapter.requestDevice(wantF16 ? { requiredFeatures: ["shader-f16"] } : undefined);
     })());
+
+    if (wantF16 && !device.features.has("shader-f16")) {
+      throw new Error("Provided GPUDevice does not have shader-f16 enabled.");
+    }
 
     const { manifest, weights } = model;
     const rawBytes = new Uint8Array(weights.buffer, weights.byteOffset, weights.byteLength);
@@ -88,7 +99,9 @@ export class WebGPUUpscaler {
     const weightBuffers = [];
 
     for (const layer of manifest.layers) {
-      const slice = rawBytes.subarray(layer.byte_offset, layer.byte_offset + layer.byte_length);
+      const offset = wantF16 ? layer.byte_offset_f16 : layer.byte_offset;
+      const length = wantF16 ? layer.byte_length_f16 : layer.byte_length;
+      const slice = rawBytes.subarray(offset, offset + length);
       const buf = device.createBuffer({
         size: slice.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -102,17 +115,20 @@ export class WebGPUUpscaler {
           cOutV4: layer.c_out / 4,
           activation: layer.activation,
           leakySlope: manifest.leaky_slope,
+          useF16: wantF16,
         });
       } else if (layer.role === "features_d2s") {
         code = buildFinalD2SRgbShader({
           cInV4: layer.c_in / 4,
           inputSkip: manifest.input_skip,
+          useF16: wantF16,
         });
       } else if (layer.kind === "conv_grouped") {
         code = buildConvGroupedShader({
           gV4: layer.c_in / 4,
           activation: layer.activation,
           leakySlope: manifest.leaky_slope,
+          useF16: wantF16,
         });
       } else {
         code = buildConvDenseShader({
@@ -120,6 +136,7 @@ export class WebGPUUpscaler {
           cOutV4: layer.c_out / 4,
           activation: layer.activation,
           leakySlope: manifest.leaky_slope,
+          useF16: wantF16,
         });
       }
 
@@ -134,7 +151,7 @@ export class WebGPUUpscaler {
       );
     }
 
-    return new WebGPUUpscaler(device, model, { rgbToY, layers: layerPipelines }, weightBuffers);
+    return new WebGPUUpscaler(device, model, { rgbToY, layers: layerPipelines }, weightBuffers, wantF16);
   }
 
   _ensureSize(width, height) {
@@ -144,7 +161,8 @@ export class WebGPUUpscaler {
     this._releaseFrameResources();
     const device = this.device;
     const filtersV4 = this.model.manifest.filters / 4;
-    const featBytes = width * height * filtersV4 * 16;
+    const vec4Bytes = this._useF16 ? 8 : 16;
+    const featBytes = width * height * filtersV4 * vec4Bytes;
 
     const srcTex = device.createTexture({
       size: [width, height, 1],
@@ -305,10 +323,6 @@ export class WebGPUUpscaler {
     return pipeline;
   }
 
-  /**
-   * Upscale an image or video frame and present it to a WebGPU canvas.
-   * Pass options.split in [0, 1] to show bilinear on the left and ArtCNN on the right.
-   */
   renderToCanvas(source, canvas, options = {}) {
     const split = options.split ?? 0;
     const { encoder, width, height } = this._encodeInference(source);
@@ -361,9 +375,6 @@ export class WebGPUUpscaler {
     return { width: outW, height: outH };
   }
 
-  /**
-   * Re-present the most recently upscaled frame with a new split position without re-running inference.
-   */
   presentOnly(canvas, split = 0) {
     if (!this._resources) return;
     const ctxInfo = this._canvasContexts.get(canvas);
@@ -396,9 +407,6 @@ export class WebGPUUpscaler {
     this.device.queue.submit([encoder.finish()]);
   }
 
-  /**
-   * Upscale an image or video frame and read back RGBA pixels as ImageData.
-   */
   async upscaleToImageData(source) {
     const { encoder, width, height } = this._encodeInference(source);
     const outW = width * 2;
