@@ -28,7 +28,7 @@ See the [shader catalog](GLSL/Optimized/README.md) for alternatives, including t
 
 ## Browser playback and upscaling (WebGPU)
 
-Serve the repository root with any static HTTP server and open [`Web/demo/`](Web/demo/index.html) to upscale images or `<video>` files in real time with a live split comparison:
+Try the [live WebGPU demo](https://perennialtech.github.io/ArtCNN/) directly in your browser, or serve the repository root locally and open [`Web/demo/`](Web/demo/index.html) to upscale images or `<video>` files in real time with a live split comparison:
 
 ```sh
 python3 -m http.server 8000
