@@ -26,7 +26,7 @@ At 720p → 1440p, the FMA C4F32 reached 263.7 FPS versus 92.1 for stock. The FM
 
 ## Reproduce the data and run the benchmark
 
-Use FFmpeg with Vulkan, libplacebo custom shaders, libx264, and libx265. The `training` group installs ONNX and the CUDA 12.8 PyTorch build on x86-64 Linux or Windows. Run the commands in a scratch directory. `uv run --project` selects the checkout's locked environment and keeps scratch outputs in your working directory.
+Use FFmpeg with Vulkan, libplacebo custom shaders, libx264, and libx265. The `training` group installs ONNX and the CUDA 13.4 PyTorch build on x86-64 Linux or Windows. See the [training requirements](README.md#running-tests-and-local-ablations) for supported Python versions and NVIDIA drivers. Run the commands in a scratch directory. `uv run --project` selects the checkout's locked environment and keeps scratch outputs in your working directory.
 
 ```bash
 repo=/path/to/ArtCNN

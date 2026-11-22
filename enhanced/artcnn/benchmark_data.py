@@ -78,21 +78,23 @@ def make_anime_scene(category: str, size: int = 96, seed: int = 0) -> np.ndarray
         # Subtitle/credit-like crisp characters on dark/light bar
         bg = float(rng.choice([0.12, 0.88]))
         fg = 0.94 if bg < 0.5 else 0.08
-        img.fill(bg)
+        # OpenCV 5 renders text on 8-bit images. Blend the glyph coverage into luma.
+        text_mask = np.zeros(img.shape, dtype=np.uint8)
         words = ["EP.04", "ARTCNN", "1080p", "END"]
         for row_idx, word in enumerate(words):
             y_pos = 18 + row_idx * 22
             if y_pos < size - 4:
                 cv2.putText(
-                    img,
+                    text_mask,
                     word,
                     (6, y_pos),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.45,
-                    fg,
+                    255,
                     1,
                     cv2.LINE_AA,
                 )
+        img = bg + (fg - bg) * (text_mask.astype(np.float32) / 255.0)
 
     elif category == "repeating_grid":
         # Fence / windowpane / screen-tone repeating lines

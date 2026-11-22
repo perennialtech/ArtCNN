@@ -4,7 +4,7 @@ The CLI runs an ONNX model on a single image or a directory. It writes PNGs to t
 
 ## CPU inference
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run the commands from the repository root. Inference requires Python 3.12 or newer. uv defaults to Python 3.12 and creates the project environment from [uv.lock](../uv.lock). Run `uv sync --locked` to install the default environment ahead of time. Start with [C4F16 Clean](../ONNX/CPU/ArtCNN_C4F16_Clean.onnx) for clean luma inputs or [C4F16 Restore](../ONNX/CPU/ArtCNN_C4F16_Restore.onnx) for blurred or compressed inputs.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run the commands from the repository root. Use Python 3.12–3.14 with the current ONNX Runtime wheels. On Macs, use Apple Silicon with macOS 15 or newer. uv defaults to Python 3.12 and creates the project environment from [uv.lock](../uv.lock). Run `uv sync --locked` to install the default environment ahead of time. Start with [C4F16 Clean](../ONNX/CPU/ArtCNN_C4F16_Clean.onnx) for clean luma inputs or [C4F16 Restore](../ONNX/CPU/ArtCNN_C4F16_Restore.onnx) for blurred or compressed inputs.
 
 ```sh
 uv run --locked python Inferencer/inferencer.py image.png --model ONNX/CPU/ArtCNN_C4F16_Clean.onnx --cpu
