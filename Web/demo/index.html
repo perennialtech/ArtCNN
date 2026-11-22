@@ -1,0 +1,69 @@
+<!-- SPDX-FileCopyrightText: 2026 perennialtech contributors -->
+<!-- SPDX-License-Identifier: MIT -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ArtCNN WebGPU Demo</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <div>
+          <h1>ArtCNN in the Browser</h1>
+          <p>Real-time 2&times; anime upscaling via WebGPU compute shaders (with automatic CPU fallback).</p>
+        </div>
+        <div class="badge-row">
+          <span id="backendBadge" class="badge">Initializing&hellip;</span>
+          <span id="sizeBadge" class="badge">&mdash;</span>
+          <span id="timingBadge" class="badge">&mdash;</span>
+        </div>
+      </header>
+
+      <section class="controls" aria-label="Upscaler controls">
+        <div class="field">
+          <label for="modelSelect">Model</label>
+          <select id="modelSelect"></select>
+        </div>
+        <div class="field">
+          <label for="backendSelect">Backend</label>
+          <select id="backendSelect">
+            <option value="auto" selected>Auto (WebGPU &rarr; CPU)</option>
+            <option value="webgpu">WebGPU</option>
+            <option value="cpu">CPU (Float32Array)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="splitRange">Split (Bilinear / ArtCNN): <span id="splitValue">50%</span></label>
+          <input id="splitRange" type="range" min="0" max="100" value="50" />
+        </div>
+        <div class="actions">
+          <button id="openFileBtn" type="button">Open Image / Video</button>
+          <button id="sampleBtn" type="button">Sample Pattern</button>
+          <button id="downloadBtn" type="button">Save PNG</button>
+          <input id="fileInput" type="file" accept="image/*,video/*" />
+        </div>
+      </section>
+
+      <section id="videoBar" class="video-bar">
+        <button id="playPauseBtn" type="button">Pause</button>
+        <span id="videoStatus" class="hint">Playing video&hellip;</span>
+      </section>
+
+      <section id="dropZone" class="stage-wrap">
+        <div id="canvasContainer" class="canvas-container">
+          <canvas id="outputCanvas"></canvas>
+          <div id="splitLine" class="split-line"></div>
+          <span class="split-label left">Bilinear 2&times;</span>
+          <span id="rightLabel" class="split-label right">ArtCNN 2&times;</span>
+        </div>
+      </section>
+
+      <p id="statusText" class="hint">Drop any image or video onto the viewer, or drag across the canvas to compare.</p>
+    </main>
+
+    <script type="module" src="./demo.js"></script>
+  </body>
+</html>

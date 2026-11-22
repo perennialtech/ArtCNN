@@ -1,0 +1,91 @@
+{
+  "format": "artcnn-webgpu",
+  "version": 1,
+  "name": "ArtCNN_C3F8_Fast",
+  "architecture": "C3F8",
+  "scale": 2,
+  "color_space": "luma_bt709",
+  "dtype": "float32",
+  "filters": 8,
+  "internal_layers": 3,
+  "activation": "leaky_relu",
+  "leaky_slope": 0.1,
+  "input_skip": true,
+  "weights_file": "ArtCNN_C3F8_Fast.bin",
+  "weights_bytes": 10832,
+  "weights_sha256": "260eea62ecc7e57fdc1ba52729e098e79b148d2f39f44abcd744bd2150ed3d8c",
+  "layers": [
+    {
+      "kind": "conv_in1",
+      "c_in": 1,
+      "c_out": 8,
+      "bias_floats": 8,
+      "weight_floats": 72,
+      "name": "conv2d",
+      "role": "entry",
+      "activation": "none",
+      "byte_offset": 0,
+      "byte_length": 320
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 8,
+      "c_out": 8,
+      "bias_floats": 8,
+      "weight_floats": 576,
+      "name": "conv2d_1",
+      "role": "internal",
+      "activation": "leaky_relu",
+      "byte_offset": 320,
+      "byte_length": 2336
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 8,
+      "c_out": 8,
+      "bias_floats": 8,
+      "weight_floats": 576,
+      "name": "conv2d_2",
+      "role": "internal",
+      "activation": "leaky_relu",
+      "byte_offset": 2656,
+      "byte_length": 2336
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 8,
+      "c_out": 8,
+      "bias_floats": 8,
+      "weight_floats": 576,
+      "name": "conv2d_3",
+      "role": "internal",
+      "activation": "leaky_relu",
+      "byte_offset": 4992,
+      "byte_length": 2336
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 8,
+      "c_out": 8,
+      "bias_floats": 8,
+      "weight_floats": 576,
+      "name": "conv2d_4",
+      "role": "mix_global",
+      "activation": "none",
+      "byte_offset": 7328,
+      "byte_length": 2336
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 8,
+      "c_out": 4,
+      "bias_floats": 4,
+      "weight_floats": 288,
+      "name": "conv2d_5",
+      "role": "features_d2s",
+      "activation": "none",
+      "byte_offset": 9664,
+      "byte_length": 1168
+    }
+  ]
+}
