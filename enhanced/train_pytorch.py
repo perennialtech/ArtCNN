@@ -1,11 +1,10 @@
-"""Drop-in PyTorch GPU training script for ArtCNN C4F32 / C4F16 with all enhancements:
+"""Early PyTorch GPU trainer for ArtCNN C4F32 / C4F16.
   - Foldable 5-branch EdgeConvBlock (ECB) -> collapsed to standard 3x3 convs on export
   - Blended Charbonnier L1 + Sobel edge-agreement + 2D FFT + Temporal-shift consistency
-  - Optional R16F96 / R8F64 ONNX or PyTorch teacher distillation
   - Realistic multi-kernel + 4x4 DCT + ringing degradation (from artcnn.degradation)
   - Flat-fill-aware balanced patch sampling (from artcnn.benchmark_data)
   - Cosine annealing AdamW + EMA weights
-  - Exports both ONNX and Fused 7-pass mpv GLSL shader via artcnn.glsl_export
+  - Exports a PyTorch checkpoint and a fused mpv GLSL shader
 
 Usage (on a GPU machine with PyTorch installed):
   python train_pytorch.py --hr-dir /path/to/Anime_Train_HR --filters 32 --epochs 300

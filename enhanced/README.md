@@ -1,10 +1,10 @@
 # ArtCNN Enhanced
 
-The [real-frame shaders and benchmark](PARETO.md) cover the optimized upstream presets and the separately trained compact, grouped, and restoration models.
+This directory contains ArtCNN's training, shader export, and quality evaluation tools. For playback, see the [optimized shader catalog](../GLSL/Optimized/README.md). For CPU image processing, see the [CPU model catalog](../ONNX/CPU/README.md).
 
-Standalone, verified engineering implementation of zero-cost and low-cost perceived-quality upgrades for [Artoriuz/ArtCNN](https://github.com/Artoriuz/ArtCNN) (`C4F16` / `C4F32`).
+[Real-frame training and evaluation](PARETO.md) covers the models in the shader catalog. [Portable checkpoints and measurements](pareto/README.md) are stored alongside the benchmark.
 
-## What's implemented
+## Earlier training and shader experiments
 
 1. **Zero-cost training upgrades (same runtime MACs)**
    - **Realistic luma degradation (`artcnn/degradation.py`):** Multi-kernel downscaling (`AREA`, `LINEAR`, `CUBIC`, `LANCZOS4`), mild pre-blur, unsharp ringing halos, and custom 4x4 radial-table DCT compression (extending ArtCNN v1.6.2's Chroma codec model to Luma).
@@ -31,10 +31,12 @@ python -m pip install numpy scipy 'opencv-python-headless<5'
 PYTHONPATH=. python tests/test_all.py
 ```
 
+With ONNX and PyTorch installed, run `PYTHONPATH=. python tests/test_pareto.py` from `enhanced/` to verify the shipped shader catalog and fine-tuning paths.
+
 To rerun the CPU ablations and regenerate the results and shaders, run the following from `enhanced/`.
 
 ```bash
 PYTHONPATH=. python run_ablations.py
 ```
 
-See `RESULTS.md` for measured ablation numbers and `shaders/` for exported baseline vs. fused GLSL shaders.
+See the [ablation results](RESULTS.md) and [ablation shaders](shaders/) for this synthetic-data experiment.

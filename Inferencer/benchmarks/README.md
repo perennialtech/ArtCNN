@@ -1,6 +1,6 @@
 # ArtCNN CPU benchmark
 
-The upstream control is Artoriuz/ArtCNN at `0837e5326e710f49e2ab0a8d995da0708047442e`. The fork's original `Inferencer/` and `ONNX/` trees match this revision. See the [measured results](results.md) for the CPU comparisons.
+The upstream control is Artoriuz/ArtCNN at `0837e5326e710f49e2ab0a8d995da0708047442e`. The benchmark uses the unmodified inferencer from that revision and the stock ONNX weights. See the [measured results](results.md) for the CPU comparisons.
 
 ## Inputs and measurements
 
@@ -12,7 +12,7 @@ The upstream control is Artoriuz/ArtCNN at `0837e5326e710f49e2ab0a8d995da0708047
 
 ## Reproduce
 
-Install the [inference dependencies](../README.md#cpu-inference), plus `scipy` and `scikit-image` for quality scoring. Quality scoring also requires FFmpeg with `libx264` and `libx265`.
+Install the [inference dependencies](../README.md#cpu-inference), including `openvino` and `onnx` for the examples below. Install `scipy` and `scikit-image` for quality scoring. Quality scoring also requires FFmpeg with `libx264` and `libx265`.
 
 From the repository root, point `--upstream-engine-dir` at the pinned upstream checkout's `Inferencer/` directory to time its unmodified `Engine` for the `ort` entries.
 
@@ -22,11 +22,12 @@ python Inferencer/benchmarks/performance.py \
   --upstream-engine-dir /path/to/upstream/Inferencer \
   --sizes 960x540 1280x720 --samples 6 --rounds 4 \
   --models ONNX/ArtCNN_C4F16.onnx:ort,ort-4,ov-4,tile160x4 \
-           ONNX/ArtCNN_C4F32.onnx:ort,ort-4,ov-4,tile160x4 \
+           ONNX/ArtCNN_C4F32_DN.onnx:ort,ov-4 \
+           ONNX/CPU/ArtCNN_C4F16_Restore.onnx:ort-4,ov-4 \
   --output cpu-performance.jsonl
 
 python Inferencer/benchmarks/quality.py \
   --manifest Inferencer/benchmarks/holdout.json --fetch \
-  --models bicubic ONNX/ArtCNN_C4F16.onnx ONNX/ArtCNN_C4F32.onnx \
+  --models bicubic ONNX/ArtCNN_C4F32_DN.onnx ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
   --output cpu-quality.jsonl
 ```

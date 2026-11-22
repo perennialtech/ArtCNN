@@ -1,11 +1,6 @@
 # Real-frame ArtCNN shaders
 
-The shaders in [pareto](pareto/) upsample luma 2× in mpv with `vo=gpu-next`. Choose one shader for a playback profile.
-
-```ini
-vo=gpu-next
-glsl-shader="/path/to/ArtCNN/enhanced/pareto/ArtCNN_C4F16_FusedFMA.glsl"
-```
+See the [shader catalog](../GLSL/Optimized/README.md) for playback setup and model selection. This page covers the measurements and how to reproduce them.
 
 The stock-weight variants combine pixel shuffle with the last convolution and use explicit fused multiply-adds. FMA changes the order of rounding in the shader. The exact variants use only pass fusion and workgroup changes. The trained variants use real animation frames and include compact dense and grouped convolutions. A grouped block runs a 3×3 convolution within each four-channel input group and mixes the resulting channels with a 1×1 convolution in the same pass.
 
@@ -72,7 +67,7 @@ Benchmark paired quality with the held-out manifest. The example also adds bicub
 bench="$repo/enhanced/experiments/bench_pareto.py"
 shaders=(
   "upstream-f16=$repo/GLSL/ArtCNN_C4F16.glsl"
-  "f16-fast=$repo/enhanced/pareto/ArtCNN_C4F16_FusedFMA.glsl"
+  "f16-fast=$repo/GLSL/Optimized/ArtCNN_C4F16_FusedFMA.glsl"
 )
 python "$bench" quality --stress --output quality --manifests data/holdout-manifest.json \
     --register "${shaders[@]}" --models spline36 upstream-f16 f16-fast

@@ -2,7 +2,7 @@
   "models": {
     "f8-fast": {
       "source": "shaders/r8-f8.glsl",
-      "file": "ArtCNN_C3F8_Fast.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C3F8_Fast.glsl",
       "sha256": "d68f345b7661a2ed14d80690687ea679757ee5c70c577bb43f9d3f524ec6e526",
       "checkpoint": "ArtCNN_C3F8_Fast.npz",
       "workgroup": [
@@ -12,7 +12,7 @@
     },
     "f12-fast": {
       "source": "shaders/f12-fma.glsl",
-      "file": "ArtCNN_C3F12_Fast.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C3F12_Fast.glsl",
       "sha256": "61d14cee63e034dab9b5b76abbd2c6ec0785a8308bb07d6bd6b07b307456d576",
       "checkpoint": "ArtCNN_C3F12_Fast.npz",
       "workgroup": [
@@ -22,7 +22,7 @@
     },
     "g16-fast": {
       "source": "shaders/g16-fma.glsl",
-      "file": "ArtCNN_C4F16_Grouped.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_Grouped.glsl",
       "sha256": "7b2acff64e2003fe485b4e2b516b2af5549c08dfe688694e9d782a80d9ab5e7e",
       "checkpoint": "ArtCNN_C4F16_Grouped.npz",
       "workgroup": [
@@ -32,7 +32,7 @@
     },
     "g32-fast": {
       "source": "shaders/g32-fma.glsl",
-      "file": "ArtCNN_C4F32_Grouped.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F32_Grouped.glsl",
       "sha256": "b7cb80b94af9bcba1b61f4fd5994097a74e5f1490363a00920910cd2a7b8ede7",
       "checkpoint": "ArtCNN_C4F32_Grouped.npz",
       "workgroup": [
@@ -42,7 +42,7 @@
     },
     "f16-fast": {
       "source": "shaders/ArtCNN_C4F16_8x8_FMA.glsl",
-      "file": "ArtCNN_C4F16_FusedFMA.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_FusedFMA.glsl",
       "sha256": "ac36c39e639780c085c7d372b29a647ae31bf9609a0f6d1414108be27d957c68",
       "checkpoint": null,
       "workgroup": [
@@ -53,7 +53,7 @@
     },
     "f16-exact": {
       "source": "shaders/ArtCNN_C4F16_8x8.glsl",
-      "file": "ArtCNN_C4F16_Exact.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_Exact.glsl",
       "sha256": "194f41da6767c5569685522c887d9a8cbde099e605fa780c2f78feda241cd468",
       "checkpoint": null,
       "workgroup": [
@@ -64,7 +64,7 @@
     },
     "f32-fast": {
       "source": "shaders/stock-f32-fma.glsl",
-      "file": "ArtCNN_C4F32_FusedFMA.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F32_FusedFMA.glsl",
       "sha256": "a5121d715c07039b4e1d9b8333bdb2cb0fd0945e0c5a962cee7fc605709c5581",
       "checkpoint": null,
       "workgroup": [
@@ -75,7 +75,7 @@
     },
     "f32-exact": {
       "source": "shaders/stock-f32-fused.glsl",
-      "file": "ArtCNN_C4F32_Exact.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F32_Exact.glsl",
       "sha256": "0c1238a7205647cc5e477a2caaa176960665d3ce704fe34e7548a8212753226d",
       "checkpoint": null,
       "workgroup": [
@@ -86,7 +86,7 @@
     },
     "f16-restore": {
       "source": "shaders/f16-restore-fma.glsl",
-      "file": "ArtCNN_C4F16_Restore.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_Restore.glsl",
       "sha256": "3bad18ef184e857d020c2f70948c75875358c416f6c25a6e7ab443b1ec3debbb",
       "checkpoint": "ArtCNN_C4F16_Restore.npz",
       "workgroup": [
@@ -96,7 +96,7 @@
     },
     "f32-restore": {
       "source": "shaders/f32-restore-fma.glsl",
-      "file": "ArtCNN_C4F32_Restore.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F32_Restore.glsl",
       "sha256": "e0ae4193f0cd8c314ba831194745e3de022705b558177be74b58693ab97790f9",
       "checkpoint": "ArtCNN_C4F32_Restore.npz",
       "workgroup": [
@@ -106,7 +106,7 @@
     },
     "f16-balanced": {
       "source": "shaders/f16-balanced-fma.glsl",
-      "file": "ArtCNN_C4F16_Balanced.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_Balanced.glsl",
       "sha256": "1e63a0e3322d60787d1ce4963f15171c192f1526bc57e26380b0f49b7a615ca6",
       "checkpoint": "ArtCNN_C4F16_Balanced.npz",
       "workgroup": [
@@ -116,7 +116,7 @@
     },
     "f16-clean": {
       "source": "shaders/clean-f16-mix.glsl",
-      "file": "ArtCNN_C4F16_Clean.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_Clean.glsl",
       "sha256": "7a165a1c701e34fb19b2e9bd6e4a876f6f4ceacc158b334bb6eec9e02cd388d3",
       "checkpoint": "ArtCNN_C4F16_Clean.npz",
       "workgroup": [
@@ -126,7 +126,7 @@
     },
     "f16-dn-fast": {
       "source": "GLSL/ArtCNN_C4F16_DN.glsl",
-      "file": "ArtCNN_C4F16_DN_FusedFMA.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_DN_FusedFMA.glsl",
       "sha256": "eb0f18c271ad4c9e606250ac192f7a364572d80184f9c7f4e7a1308659082b11",
       "checkpoint": null,
       "workgroup": [
@@ -137,7 +137,7 @@
     },
     "f16-ds-fast": {
       "source": "GLSL/ArtCNN_C4F16_DS.glsl",
-      "file": "ArtCNN_C4F16_DS_FusedFMA.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_DS_FusedFMA.glsl",
       "sha256": "eeccb2571ea87c858d233b24fdf46b3dd9444ecbb67ba2ce4b3569079725f6bb",
       "checkpoint": null,
       "workgroup": [
@@ -148,7 +148,7 @@
     },
     "f32-dn-fast": {
       "source": "GLSL/ArtCNN_C4F32_DN.glsl",
-      "file": "ArtCNN_C4F32_DN_FusedFMA.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F32_DN_FusedFMA.glsl",
       "sha256": "7560bdded8b74df084bf36042847f3e33b0a96897354b4d69ac9ad4e755a1d16",
       "checkpoint": null,
       "workgroup": [
@@ -159,7 +159,7 @@
     },
     "f32-ds-fast": {
       "source": "GLSL/ArtCNN_C4F32_DS.glsl",
-      "file": "ArtCNN_C4F32_DS_FusedFMA.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F32_DS_FusedFMA.glsl",
       "sha256": "6ec6c04d60a1ca16a3311f18985c7224ce1a55ecb6a124a778be4ceeabbb33e6",
       "checkpoint": null,
       "workgroup": [
@@ -170,7 +170,7 @@
     },
     "f16-ds-exact": {
       "source": "GLSL/ArtCNN_C4F16_DS.glsl",
-      "file": "ArtCNN_C4F16_DS_Exact.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F16_DS_Exact.glsl",
       "sha256": "78411a5e9211f8f525472c2f6ac018621e3db18e0d630549547517f0118f269a",
       "checkpoint": null,
       "workgroup": [
@@ -181,7 +181,7 @@
     },
     "f32-ds-exact": {
       "source": "GLSL/ArtCNN_C4F32_DS.glsl",
-      "file": "ArtCNN_C4F32_DS_Exact.glsl",
+      "file": "../../GLSL/Optimized/ArtCNN_C4F32_DS_Exact.glsl",
       "sha256": "c297bbf65aa7cf559586d0801d9562369d83e4aff6152dbd5c976024cf6de184",
       "checkpoint": null,
       "workgroup": [
