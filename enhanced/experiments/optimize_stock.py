@@ -34,7 +34,8 @@ def fuse_upstream_final(shader: str) -> str:
     for x, y, component in ((0, 0, "x"), (1, 0, "y"), (0, 1, "z"), (1, 1, "w")):
         direct.append(f"    imageStore(out_image, p + ivec2({x}, {y}), "
                       f"vec4(clamp(float(result0.{component}), 0.0, 1.0), 0.0, 0.0, 1.0));")
-    return "//!DESC ".join([*parts[:-2], replace_once(final, original[0], "\n".join(direct))])
+    shader = "//!DESC ".join([*parts[:-2], replace_once(final, original[0], "\n".join(direct))])
+    return shader.rstrip() + "\n"
 
 
 def main():

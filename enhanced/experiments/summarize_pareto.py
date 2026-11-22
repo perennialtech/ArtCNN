@@ -8,6 +8,7 @@ from statistics import mean, median
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import NullFormatter
 
 REGIMES = {
     "area": "Clean area downscale", "blur-area": "Blur plus area downscale",
@@ -25,6 +26,9 @@ LABELS = {
     "f16-restore": "Restore 16", "f16-clean": "Clean 16", "f16-balanced": "Balanced 16",
     "f32-fast": "F32 fused FMA", "f32-exact": "F32 exact",
     "f32-restore": "Restore 32", "f32-clean": "Clean 32",
+    "f16-dn-fast": "F16 DN fused FMA", "f16-ds-fast": "F16 DS fused FMA",
+    "f32-dn-fast": "F32 DN fused FMA", "f32-ds-fast": "F32 DS fused FMA",
+    "f16-ds-exact": "F16 DS exact", "f32-ds-exact": "F32 DS exact",
 }
 
 
@@ -98,7 +102,12 @@ def frontier(rows, regime, candidates):
 def make_plot(stats, subset, count, path):
     layouts = list(REGIMES.items())
     fig, axes = plt.subplots(2, 2, figsize=(10.8, 7.0))
-    emphasis = {"f8-fast", "f12-fast", "g16-fast", "f16-fast", "f16-restore", "f32-fast", "f32-restore"}
+    highlights = {
+        "area": {"f8-fast", "g16-fast", "f16-clean", "f32-fast"},
+        "blur-area": {"f8-fast", "f12-fast", "g16-fast", "f16-restore", "f32-restore"},
+        "h264-qp32": {"f8-fast", "g16-fast", "f16-restore", "f32-restore"},
+        "bicubic-hevc": {"f8-fast", "g16-fast", "f16-ds-fast", "f32-ds-fast"},
+    }
     for ax, (regime, title) in zip(axes.ravel(), layouts):
         for key, row in stats.items():
             x, y = row["median_fps"], row["regimes"][regime]["mean_psnr"]
@@ -106,8 +115,9 @@ def make_plot(stats, subset, count, path):
             color = "#366183" if upstream else "#b45325"
             ax.scatter(x, y, marker="o" if upstream else "D", c=color,
                        edgecolors="white", linewidths=.65, s=48, zorder=3)
-            if key in emphasis and key in subset[regime]["combined"]:
-                ax.annotate(LABELS.get(key, key), (x,y), xytext=(4, 5), textcoords="offset points", fontsize=8)
+            if key in highlights[regime]:
+                ax.annotate(LABELS.get(key, key), (x, y), xytext=(-4, 7), ha="right",
+                            textcoords="offset points", fontsize=8)
         for keys, color, ls in (
             (subset[regime]["upstream"], "#366183", "--"),
             (subset[regime]["combined"], "#b45325", "-"),
@@ -117,11 +127,13 @@ def make_plot(stats, subset, count, path):
         ax.set_title(title, loc="left", fontweight="bold")
         ax.set_xscale("log")
         ax.set_xticks([40, 60, 100, 160, 250, 400, 600], ["40","60","100","160","250","400","600"])
+        ax.xaxis.set_minor_formatter(NullFormatter())
         ax.set_xlim(33, 760)
+        ax.margins(y=0.10)
         ax.grid(alpha=.20)
         ax.spines[["right","top"]].set_visible(False)
     fig.suptitle(f"ArtCNN quality–speed frontier · {count} held-out frames", x=.055, y=.985, ha="left", fontsize=17, weight="bold")
-    fig.text(.056, .935, "Blue dashed: upstream and Spline36    Orange: frontier after adding fork candidates", fontsize=10)
+    fig.text(.056, .935, "Blue shows upstream and Spline36. Orange shows the expanded frontier.", fontsize=10)
     fig.supxlabel("RTX 3080 1080p → 2160p throughput (FPS, log scale)", y=.02)
     fig.supylabel("Mean luma PSNR (dB)", x=.012)
     fig.subplots_adjust(bottom=.105, top=.865, wspace=.26, hspace=.40)

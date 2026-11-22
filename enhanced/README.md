@@ -1,5 +1,7 @@
 # ArtCNN Enhanced
 
+The [real-frame shaders and benchmark](PARETO.md) cover the optimized upstream presets and the separately trained compact, grouped, and restoration models.
+
 Standalone, verified engineering implementation of zero-cost and low-cost perceived-quality upgrades for [Artoriuz/ArtCNN](https://github.com/Artoriuz/ArtCNN) (`C4F16` / `C4F32`).
 
 ## What's implemented
