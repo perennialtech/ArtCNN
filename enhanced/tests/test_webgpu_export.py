@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 perennialtech contributors
 # SPDX-License-Identifier: MIT
 
-"""Tests for the WebGPU / browser bundle exporter and catalog integrity."""
+"""Tests for the WebGPU / browser bundle exporter (FP32 + FP16) and catalog integrity."""
 
 from __future__ import annotations
 
@@ -10,8 +10,6 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-
-import numpy as np
 
 from artcnn.webgpu_export import export_artcnn_webgpu, load_checkpoint, write_webgpu_bundle
 
@@ -26,17 +24,29 @@ class WebGPUExportTests(unittest.TestCase):
         self.assertGreaterEqual(len(ckpts), 6)
         for ckpt in ckpts:
             model, grouped = load_checkpoint(ckpt)
-            manifest, binary = export_artcnn_webgpu(model, name=ckpt.stem, grouped_kernels=grouped)
+            manifest, binary_f32, binary_f16 = export_artcnn_webgpu(
+                model, name=ckpt.stem, grouped_kernels=grouped
+            )
             self.assertEqual(manifest["format"], "artcnn-webgpu")
-            self.assertEqual(manifest["weights_bytes"], len(binary))
-            self.assertEqual(manifest["weights_sha256"], hashlib.sha256(binary).hexdigest())
-            self.assertEqual(len(binary) % 16, 0)
-            offset = 0
+            self.assertEqual(manifest["weights_bytes"], len(binary_f32))
+            self.assertEqual(manifest["weights_sha256"], hashlib.sha256(binary_f32).hexdigest())
+            self.assertEqual(manifest["weights_f16_bytes"], len(binary_f16))
+            self.assertEqual(manifest["weights_f16_sha256"], hashlib.sha256(binary_f16).hexdigest())
+            self.assertEqual(len(binary_f16) * 2, len(binary_f32))
+            self.assertEqual(len(binary_f32) % 16, 0)
+            self.assertEqual(len(binary_f16) % 8, 0)
+            offset_f32 = 0
+            offset_f16 = 0
             for layer in manifest["layers"]:
-                self.assertEqual(layer["byte_offset"], offset)
+                self.assertEqual(layer["byte_offset"], offset_f32)
                 self.assertEqual(layer["byte_length"] % 16, 0)
-                offset += layer["byte_length"]
-            self.assertEqual(offset, len(binary))
+                self.assertEqual(layer["byte_offset_f16"], offset_f16)
+                self.assertEqual(layer["byte_length_f16"] * 2, layer["byte_length"])
+                self.assertEqual(layer["byte_length_f16"] % 8, 0)
+                offset_f32 += layer["byte_length"]
+                offset_f16 += layer["byte_length_f16"]
+            self.assertEqual(offset_f32, len(binary_f32))
+            self.assertEqual(offset_f16, len(binary_f16))
             if grouped:
                 self.assertTrue(any(l["kind"] == "conv_grouped" for l in manifest["layers"]))
 
@@ -49,13 +59,17 @@ class WebGPUExportTests(unittest.TestCase):
             for entry in catalog["models"]:
                 committed_json = json.loads((WEB_MODELS_DIR / entry["manifest"]).read_text(encoding="utf-8"))
                 committed_bin = (WEB_MODELS_DIR / entry["weights"]).read_bytes()
+                committed_f16 = (WEB_MODELS_DIR / entry["weights_f16"]).read_bytes()
                 self.assertEqual(len(committed_bin), entry["weights_bytes"])
                 self.assertEqual(hashlib.sha256(committed_bin).hexdigest(), entry["weights_sha256"])
+                self.assertEqual(len(committed_f16), entry["weights_f16_bytes"])
+                self.assertEqual(hashlib.sha256(committed_f16).hexdigest(), entry["weights_f16_sha256"])
 
                 ckpt = PARETO_DIR / f"{entry['id']}.npz"
-                _, fresh_bin_path, fresh_manifest = write_webgpu_bundle(ckpt, tmp_dir, name=entry["id"])
+                _, fresh_bin, fresh_f16, fresh_manifest = write_webgpu_bundle(ckpt, tmp_dir, name=entry["id"])
                 self.assertEqual(committed_json, fresh_manifest)
-                self.assertEqual(committed_bin, fresh_bin_path.read_bytes())
+                self.assertEqual(committed_bin, fresh_bin.read_bytes())
+                self.assertEqual(committed_f16, fresh_f16.read_bytes())
 
 
 if __name__ == "__main__":

@@ -2,11 +2,32 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * BT.709 RGB <-> YCbCr and 2x bilinear helpers matching Inferencer/utils.py.
+ * BT.709 RGB <-> YCbCr, 2x bilinear, and IEEE-754 float16 decode helpers.
  */
 
 export function clamp01(v) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/**
+ * Decode an array of IEEE-754 binary16 (uint16) values into Float32Array.
+ */
+export function float16ToFloat32(u16) {
+  const out = new Float32Array(u16.length);
+  for (let i = 0; i < u16.length; i++) {
+    const h = u16[i];
+    const sign = (h & 0x8000) ? -1 : 1;
+    const exp = (h >> 10) & 0x1f;
+    const frac = h & 0x03ff;
+    if (exp === 0) {
+      out[i] = sign * Math.pow(2, -14) * (frac / 1024);
+    } else if (exp === 31) {
+      out[i] = frac === 0 ? sign * Infinity : NaN;
+    } else {
+      out[i] = sign * Math.pow(2, exp - 15) * (1 + frac / 1024);
+    }
+  }
+  return out;
 }
 
 /**

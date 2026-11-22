@@ -4,10 +4,11 @@
 """Compact WebGPU / browser bundle exporter for ArtCNN C-series models.
 
 Exports an ArtCNNC model (optionally with grouped 4-channel spatial + pointwise
-mixing kernels) into a pair of browser-friendly files:
-  - <name>.json : architecture metadata, per-layer byte offsets, and SHA-256
-  - <name>.bin  : 16-byte-aligned little-endian float32 weights packed directly
-                  for WGSL vec4<f32> / column-major mat4x4<f32> storage buffers.
+mixing kernels) into browser-friendly files:
+  - <name>.json    : architecture metadata, per-layer byte offsets, and SHA-256s
+  - <name>.bin     : 16-byte-aligned little-endian float32 weights for core WebGPU & CPU
+  - <name>.f16.bin : 8-byte-aligned little-endian float16 weights (half size) for
+                     adapters supporting WebGPU's `shader-f16` feature.
 """
 
 from __future__ import annotations
@@ -25,51 +26,50 @@ from artcnn.models_np import ArtCNNC, ArtCNNCConfig, Conv2D3x3
 FORMAT_VERSION = 1
 
 
-def _pack_vec4_layer_first(layer: Conv2D3x3) -> Tuple[bytes, Dict[str, Any]]:
+def _to_dtype_bytes(arr: np.ndarray, dtype: str) -> bytes:
+    casted = np.ascontiguousarray(arr, dtype=dtype)
+    if not np.all(np.isfinite(casted)):
+        raise ValueError(f"Non-finite values produced when casting weights to {dtype}")
+    return casted.tobytes()
+
+
+def _pack_vec4_layer_first(layer: Conv2D3x3, dtype: str = "<f4") -> Tuple[bytes, Dict[str, Any]]:
     """Pack conv0 (1 -> F, 3x3): biases [F/4 x vec4], weights [F/4, 3, 3, vec4]."""
     if layer.c_in != 1 or layer.c_out % 4 != 0:
         raise ValueError(f"First layer expects c_in=1 and c_out%4==0, got {layer.c_in}->{layer.c_out}")
     out_v4 = layer.c_out // 4
-    biases = np.ascontiguousarray(layer.b, dtype="<f4")
-    # W shape: (Cout, 1, 3, 3) -> (out_v4, 4, 3, 3) -> (out_v4, 3, 3, 4)
     w = layer.W.reshape(out_v4, 4, 3, 3).transpose(0, 2, 3, 1)
-    weights = np.ascontiguousarray(w, dtype="<f4")
-    blob = biases.tobytes() + weights.tobytes()
+    blob = _to_dtype_bytes(layer.b, dtype) + _to_dtype_bytes(w, dtype)
     meta = {
         "kind": "conv_in1",
         "c_in": 1,
         "c_out": layer.c_out,
-        "bias_floats": int(biases.size),
-        "weight_floats": int(weights.size),
+        "bias_floats": int(layer.b.size),
+        "weight_floats": int(w.size),
     }
     return blob, meta
 
 
-def _pack_vec4_layer_dense(layer: Conv2D3x3) -> Tuple[bytes, Dict[str, Any]]:
+def _pack_vec4_layer_dense(layer: Conv2D3x3, dtype: str = "<f4") -> Tuple[bytes, Dict[str, Any]]:
     """Pack dense 3x3 conv (Cin -> Cout, multiples of 4) for column-major mat4x4."""
     if layer.c_in % 4 != 0 or layer.c_out % 4 != 0:
         raise ValueError(f"Dense layer expects multiples of 4, got {layer.c_in}->{layer.c_out}")
     in_v4 = layer.c_in // 4
     out_v4 = layer.c_out // 4
-    biases = np.ascontiguousarray(layer.b, dtype="<f4")
-    # W shape: (out_v4, 4_out, in_v4, 4_in, 3, 3)
-    # For WGSL column-major mat4x4 * vec4: column j = W[4p:4p+4, 4z+j, ky, kx]
-    # So inner layout is (4_in, 4_out) -> transpose to (out_v4, in_v4, 3, 3, 4_in, 4_out)
     w = layer.W.reshape(out_v4, 4, in_v4, 4, 3, 3).transpose(0, 2, 4, 5, 3, 1)
-    weights = np.ascontiguousarray(w, dtype="<f4")
-    blob = biases.tobytes() + weights.tobytes()
+    blob = _to_dtype_bytes(layer.b, dtype) + _to_dtype_bytes(w, dtype)
     meta = {
         "kind": "conv_dense",
         "c_in": layer.c_in,
         "c_out": layer.c_out,
-        "bias_floats": int(biases.size),
-        "weight_floats": int(weights.size),
+        "bias_floats": int(layer.b.size),
+        "weight_floats": int(w.size),
     }
     return blob, meta
 
 
 def _pack_vec4_layer_grouped(
-    layer: Conv2D3x3, spatial: np.ndarray, mixing: np.ndarray
+    layer: Conv2D3x3, spatial: np.ndarray, mixing: np.ndarray, dtype: str = "<f4"
 ) -> Tuple[bytes, Dict[str, Any]]:
     """Pack grouped 4-channel 3x3 spatial + 1x1 mixing conv for column-major mat4x4."""
     c_in, c_out = layer.c_in, layer.c_out
@@ -78,21 +78,16 @@ def _pack_vec4_layer_grouped(
     if spatial.shape != (c_in, 4, 3, 3) or mixing.shape != (c_out, c_in):
         raise ValueError(f"Unexpected grouped kernel shapes: {spatial.shape}, {mixing.shape}")
     g_v4 = c_in // 4
-    biases = np.ascontiguousarray(layer.b, dtype="<f4")
-    # spatial: (g_v4, 4_out, 4_in, 3, 3) -> (g_v4, 3, 3, 4_in, 4_out)
     sp = spatial.reshape(g_v4, 4, 4, 3, 3).transpose(0, 3, 4, 2, 1)
-    sp_arr = np.ascontiguousarray(sp, dtype="<f4")
-    # mixing: (g_v4_out, 4_out, g_v4_in, 4_in) -> (g_v4_out, g_v4_in, 4_in, 4_out)
     mx = mixing.reshape(g_v4, 4, g_v4, 4).transpose(0, 2, 3, 1)
-    mx_arr = np.ascontiguousarray(mx, dtype="<f4")
-    blob = biases.tobytes() + sp_arr.tobytes() + mx_arr.tobytes()
+    blob = _to_dtype_bytes(layer.b, dtype) + _to_dtype_bytes(sp, dtype) + _to_dtype_bytes(mx, dtype)
     meta = {
         "kind": "conv_grouped",
         "c_in": c_in,
         "c_out": c_out,
-        "bias_floats": int(biases.size),
-        "spatial_floats": int(sp_arr.size),
-        "mixing_floats": int(mx_arr.size),
+        "bias_floats": int(layer.b.size),
+        "spatial_floats": int(sp.size),
+        "mixing_floats": int(mx.size),
     }
     return blob, meta
 
@@ -102,36 +97,45 @@ def export_artcnn_webgpu(
     name: str,
     grouped_kernels: Dict[str, Tuple[np.ndarray, np.ndarray]] | None = None,
     weights_filename: str | None = None,
-) -> Tuple[Dict[str, Any], bytes]:
-    """Serialize an ArtCNNC model to a WebGPU manifest dict and packed float32 binary."""
+    weights_f16_filename: str | None = None,
+) -> Tuple[Dict[str, Any], bytes, bytes]:
+    """Serialize an ArtCNNC model to a WebGPU manifest dict plus FP32 and FP16 binaries."""
     cfg = model.config
     grouped_kernels = grouped_kernels or {}
     layers = model.layers()
-    chunks: List[bytes] = []
+    chunks_f32: List[bytes] = []
+    chunks_f16: List[bytes] = []
     layer_specs: List[Dict[str, Any]] = []
     byte_offset = 0
+    byte_offset_f16 = 0
 
     for idx, (layer_name, layer) in enumerate(layers):
         if idx == 0:
-            blob, meta = _pack_vec4_layer_first(layer)
+            blob_f32, meta = _pack_vec4_layer_first(layer, "<f4")
+            blob_f16, _ = _pack_vec4_layer_first(layer, "<f2")
             role = "entry"
             activation = "none"
         elif idx <= cfg.internal_layers:
             if layer_name in grouped_kernels:
-                blob, meta = _pack_vec4_layer_grouped(layer, *grouped_kernels[layer_name])
+                blob_f32, meta = _pack_vec4_layer_grouped(layer, *grouped_kernels[layer_name], "<f4")
+                blob_f16, _ = _pack_vec4_layer_grouped(layer, *grouped_kernels[layer_name], "<f2")
             else:
-                blob, meta = _pack_vec4_layer_dense(layer)
+                blob_f32, meta = _pack_vec4_layer_dense(layer, "<f4")
+                blob_f16, _ = _pack_vec4_layer_dense(layer, "<f2")
             role = "internal"
             activation = cfg.activation
         elif idx == cfg.internal_layers + 1:
             if layer_name in grouped_kernels:
-                blob, meta = _pack_vec4_layer_grouped(layer, *grouped_kernels[layer_name])
+                blob_f32, meta = _pack_vec4_layer_grouped(layer, *grouped_kernels[layer_name], "<f4")
+                blob_f16, _ = _pack_vec4_layer_grouped(layer, *grouped_kernels[layer_name], "<f2")
             else:
-                blob, meta = _pack_vec4_layer_dense(layer)
+                blob_f32, meta = _pack_vec4_layer_dense(layer, "<f4")
+                blob_f16, _ = _pack_vec4_layer_dense(layer, "<f2")
             role = "mix_global"
             activation = "none"
         else:
-            blob, meta = _pack_vec4_layer_dense(layer)
+            blob_f32, meta = _pack_vec4_layer_dense(layer, "<f4")
+            blob_f16, _ = _pack_vec4_layer_dense(layer, "<f2")
             role = "features_d2s"
             activation = "none"
 
@@ -141,14 +145,19 @@ def export_artcnn_webgpu(
                 "role": role,
                 "activation": activation,
                 "byte_offset": byte_offset,
-                "byte_length": len(blob),
+                "byte_length": len(blob_f32),
+                "byte_offset_f16": byte_offset_f16,
+                "byte_length_f16": len(blob_f16),
             }
         )
-        chunks.append(blob)
+        chunks_f32.append(blob_f32)
+        chunks_f16.append(blob_f16)
         layer_specs.append(meta)
-        byte_offset += len(blob)
+        byte_offset += len(blob_f32)
+        byte_offset_f16 += len(blob_f16)
 
-    binary = b"".join(chunks)
+    binary_f32 = b"".join(chunks_f32)
+    binary_f16 = b"".join(chunks_f16)
     manifest: Dict[str, Any] = {
         "format": "artcnn-webgpu",
         "version": FORMAT_VERSION,
@@ -163,11 +172,14 @@ def export_artcnn_webgpu(
         "leaky_slope": float(cfg.leaky_slope),
         "input_skip": bool(cfg.input_skip),
         "weights_file": weights_filename or f"{name}.bin",
-        "weights_bytes": len(binary),
-        "weights_sha256": hashlib.sha256(binary).hexdigest(),
+        "weights_bytes": len(binary_f32),
+        "weights_sha256": hashlib.sha256(binary_f32).hexdigest(),
+        "weights_f16_file": weights_f16_filename or f"{name}.f16.bin",
+        "weights_f16_bytes": len(binary_f16),
+        "weights_f16_sha256": hashlib.sha256(binary_f16).hexdigest(),
         "layers": layer_specs,
     }
-    return manifest, binary
+    return manifest, binary_f32, binary_f16
 
 
 def load_checkpoint(path: Path) -> Tuple[ArtCNNC, Dict[str, Tuple[np.ndarray, np.ndarray]]]:
@@ -188,19 +200,22 @@ def write_webgpu_bundle(
     checkpoint_path: Path,
     output_dir: Path,
     name: str | None = None,
-) -> Tuple[Path, Path, Dict[str, Any]]:
-    """Export a checkpoint .npz to <output_dir>/<name>.json and <name>.bin."""
+) -> Tuple[Path, Path, Path, Dict[str, Any]]:
+    """Export a checkpoint .npz to <name>.json, <name>.bin (FP32), and <name>.f16.bin (FP16)."""
     model_name = name or checkpoint_path.stem
     model, grouped = load_checkpoint(checkpoint_path)
-    manifest, binary = export_artcnn_webgpu(
+    manifest, binary_f32, binary_f16 = export_artcnn_webgpu(
         model,
         name=model_name,
         grouped_kernels=grouped,
         weights_filename=f"{model_name}.bin",
+        weights_f16_filename=f"{model_name}.f16.bin",
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / f"{model_name}.json"
     bin_path = output_dir / f"{model_name}.bin"
+    f16_path = output_dir / f"{model_name}.f16.bin"
     json_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
-    bin_path.write_bytes(binary)
-    return json_path, bin_path, manifest
+    bin_path.write_bytes(binary_f32)
+    f16_path.write_bytes(binary_f16)
+    return json_path, bin_path, f16_path, manifest

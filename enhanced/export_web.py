@@ -26,7 +26,7 @@ def export_catalog(pareto_dir: Path, output_dir: Path) -> Path:
     entries = []
     for model_id, label, description, ckpt_name in DEFAULT_CATALOG:
         ckpt_path = pareto_dir / ckpt_name
-        json_path, bin_path, manifest = write_webgpu_bundle(ckpt_path, output_dir, name=model_id)
+        json_path, bin_path, f16_path, manifest = write_webgpu_bundle(ckpt_path, output_dir, name=model_id)
         entries.append(
             {
                 "id": model_id,
@@ -37,6 +37,9 @@ def export_catalog(pareto_dir: Path, output_dir: Path) -> Path:
                 "weights": bin_path.name,
                 "weights_bytes": manifest["weights_bytes"],
                 "weights_sha256": manifest["weights_sha256"],
+                "weights_f16": f16_path.name,
+                "weights_f16_bytes": manifest["weights_f16_bytes"],
+                "weights_f16_sha256": manifest["weights_f16_sha256"],
                 "input_skip": manifest["input_skip"],
                 "grouped": any(layer["kind"] == "conv_grouped" for layer in manifest["layers"]),
             }
@@ -69,8 +72,11 @@ def main() -> None:
     )
     args = parser.parse_args()
     if args.checkpoint is not None:
-        json_path, bin_path, manifest = write_webgpu_bundle(args.checkpoint, args.output_dir)
-        print(f"Exported {manifest['name']} -> {json_path} ({manifest['weights_bytes']} bytes)")
+        json_path, bin_path, f16_path, manifest = write_webgpu_bundle(args.checkpoint, args.output_dir)
+        print(
+            f"Exported {manifest['name']} -> {json_path} "
+            f"(fp32={manifest['weights_bytes']} B, fp16={manifest['weights_f16_bytes']} B)"
+        )
     else:
         catalog_path = export_catalog(args.pareto_dir, args.output_dir)
         print(f"Exported browser catalog -> {catalog_path}")

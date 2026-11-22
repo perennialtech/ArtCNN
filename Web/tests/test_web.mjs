@@ -174,3 +174,54 @@ test("OnnxLumaUpscaler wraps BT.709 color conversion around an ONNX session", as
   assert.equal(out.length, 8 * 8 * 4);
   assert.ok(Math.abs(out[0] - 180) <= 1);
 });
+
+import { float16ToFloat32 } from "../src/color.js";
+
+test("float16ToFloat32 decodes IEEE-754 binary16 values accurately", () => {
+  // 0.0, -0.0, 1.0, -2.0, 0.5, smallest normal (2^-14)
+  const u16 = new Uint16Array([0x0000, 0x8000, 0x3c00, 0xc000, 0x3800, 0x0400]);
+  const f32 = float16ToFloat32(u16);
+  assert.equal(f32[0], 0);
+  assert.equal(Object.is(f32[1], -0), true);
+  assert.equal(f32[2], 1.0);
+  assert.equal(f32[3], -2.0);
+  assert.equal(f32[4], 0.5);
+  assert.ok(Math.abs(f32[5] - Math.pow(2, -14)) < 1e-9);
+});
+
+test("WGSL shader builders emit valid shader-f16 modules when useF16 is true", () => {
+  const s1 = buildConvIn1Shader({ cOutV4: 4, activation: "none", useF16: true });
+  const s2 = buildConvDenseShader({ cInV4: 4, cOutV4: 4, activation: "leaky_relu", leakySlope: 0.1, useF16: true });
+  const s3 = buildConvGroupedShader({ gV4: 4, activation: "leaky_relu", leakySlope: 0.1, useF16: true });
+  const s4 = buildFinalD2SRgbShader({ cInV4: 4, inputSkip: true, useF16: true });
+  for (const s of [s1, s2, s3, s4]) {
+    assert.match(s, /^enable f16;/);
+    assert.match(s, /vec4<f16>/);
+  }
+  assert.match(s2, /mat4x4<f16>/);
+  assert.match(s3, /mat4x4<f16>/);
+  assert.match(s4, /vec4<f32>\(acc\)/);
+});
+
+test("FP16 bundles match FP32 output closely across dense and grouped models", () => {
+  const width = 12;
+  const height = 10;
+  const inputY = new Float32Array(width * height);
+  for (let i = 0; i < inputY.length; i++) {
+    inputY[i] = ((i * 37 + 13) % 97) / 96.0;
+  }
+  for (const modelId of ["ArtCNN_C3F8_Fast", "ArtCNN_C4F16_Restore", "ArtCNN_C4F16_Grouped"]) {
+    const manifest = JSON.parse(fs.readFileSync(path.join(MODELS_DIR, `${modelId}.json`), "utf8"));
+    const f32Weights = new Uint8Array(fs.readFileSync(path.join(MODELS_DIR, manifest.weights_file)));
+    const f16Weights = new Uint8Array(fs.readFileSync(path.join(MODELS_DIR, manifest.weights_f16_file)));
+    assert.equal(f16Weights.byteLength * 2, f32Weights.byteLength);
+
+    const out32 = new CpuUpscaler({ manifest, weights: f32Weights, precision: "f32" }).upscaleLuma(inputY, width, height);
+    const out16 = new CpuUpscaler({ manifest, weights: f16Weights, precision: "f16" }).upscaleLuma(inputY, width, height);
+    let maxDiff = 0;
+    for (let i = 0; i < out32.length; i++) {
+      maxDiff = Math.max(maxDiff, Math.abs(out32[i] - out16[i]));
+    }
+    assert.ok(maxDiff < 2e-3, `${modelId} f16 vs f32 max abs diff ${maxDiff} exceeded 2e-3`);
+  }
+});

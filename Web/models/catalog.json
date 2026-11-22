@@ -11,6 +11,9 @@
       "weights": "ArtCNN_C3F8_Fast.bin",
       "weights_bytes": 10832,
       "weights_sha256": "260eea62ecc7e57fdc1ba52729e098e79b148d2f39f44abcd744bd2150ed3d8c",
+      "weights_f16": "ArtCNN_C3F8_Fast.f16.bin",
+      "weights_f16_bytes": 5416,
+      "weights_f16_sha256": "ac6b85accc903ce2e7eb1e24104daef039f613b549c34896999d22a4a70cb0c0",
       "input_skip": true,
       "grouped": false
     },
@@ -23,6 +26,9 @@
       "weights": "ArtCNN_C4F16_Clean.bin",
       "weights_bytes": 49360,
       "weights_sha256": "e76e0715cebb44187f67db768ef2f04c801daeca4e03e12f472362c62cf75f0e",
+      "weights_f16": "ArtCNN_C4F16_Clean.f16.bin",
+      "weights_f16_bytes": 24680,
+      "weights_f16_sha256": "ef07357631b408ddad181b4b468f670c263a9c220828a0362b9850ee7e978356",
       "input_skip": false,
       "grouped": false
     },
@@ -35,6 +41,9 @@
       "weights": "ArtCNN_C4F16_Balanced.bin",
       "weights_bytes": 49360,
       "weights_sha256": "b70f10aeae7821fa9278ba892185d7b77e72e629da40fe43b6b784f61a693a7f",
+      "weights_f16": "ArtCNN_C4F16_Balanced.f16.bin",
+      "weights_f16_bytes": 24680,
+      "weights_f16_sha256": "f0f3a960285fd03ea627d6b98338a4704c13d1445341fe83c43bffa34aeb4eca",
       "input_skip": false,
       "grouped": false
     },
@@ -47,6 +56,9 @@
       "weights": "ArtCNN_C4F16_Restore.bin",
       "weights_bytes": 49360,
       "weights_sha256": "79b7d871245bf64887d8bd4e92fb55938d819dc8bd83cf3ef6a253db834b548a",
+      "weights_f16": "ArtCNN_C4F16_Restore.f16.bin",
+      "weights_f16_bytes": 24680,
+      "weights_f16_sha256": "26a0f7090bbc0a2635ea33b0e01e644c1c9368c528fef2a8a798a4e8d6317ee5",
       "input_skip": false,
       "grouped": false
     },
@@ -59,6 +71,9 @@
       "weights": "ArtCNN_C4F16_Grouped.bin",
       "weights_bytes": 19920,
       "weights_sha256": "0573ad4255c99fd1a634e573f88332184bc5bb8d87aaf5043f8ccb0feddb05b7",
+      "weights_f16": "ArtCNN_C4F16_Grouped.f16.bin",
+      "weights_f16_bytes": 9960,
+      "weights_f16_sha256": "0b5fa6d177bf03747709d2fc6ef460ae89bf3734859038169861e5045a7d26af",
       "input_skip": false,
       "grouped": true
     },
@@ -71,6 +86,9 @@
       "weights": "ArtCNN_C4F32_Restore.bin",
       "weights_bytes": 190864,
       "weights_sha256": "e3622c24393e4f7d04357560ce96a412782892ea2b67881b6f33f2fc4384ecca",
+      "weights_f16": "ArtCNN_C4F32_Restore.f16.bin",
+      "weights_f16_bytes": 95432,
+      "weights_f16_sha256": "04f7acedb55bd12996073d3f4922c18a90df9e31ac1544b584e80d039ac1db6e",
       "input_skip": false,
       "grouped": false
     }

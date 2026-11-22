@@ -4,10 +4,11 @@
 /**
  * WGSL compute and render shader builders for ArtCNN C-series models.
  *
- * All intermediate feature maps use planar vec4<f32> storage buffers indexed as:
+ * All intermediate feature maps use planar vec4<T> storage buffers indexed as:
  *   ((z * height + y) * width + x)
- * for coalesced 16-byte loads/stores across 8x8 workgroups and full core WebGPU
- * compatibility (no optional extensions required).
+ * When `useF16` is true (adapters with `shader-f16`), weights, workgroup tiles,
+ * and intermediate feature buffers use `f16` / `vec4<f16>` / `mat4x4<f16>` for
+ * half-size downloads, half VRAM bandwidth, and half shared memory footprint.
  */
 
 export const WG_X = 8;
@@ -16,12 +17,34 @@ const TILE_W = WG_X + 2;
 const TILE_H = WG_Y + 2;
 const TILE_AREA = TILE_W * TILE_H;
 
-function activationExpr(varName, activation, leakySlope) {
+function types(useF16) {
+  return useF16
+    ? {
+        enable: "enable f16;\n",
+        F: "f16",
+        V4: "vec4<f16>",
+        M4: "mat4x4<f16>",
+        zeroF: "0.0h",
+        zeroV4: "vec4<f16>(0.0h)",
+        lit: (v) => `${Number(v).toFixed(6)}h`,
+      }
+    : {
+        enable: "",
+        F: "f32",
+        V4: "vec4<f32>",
+        M4: "mat4x4<f32>",
+        zeroF: "0.0",
+        zeroV4: "vec4<f32>(0.0)",
+        lit: (v) => `${Number(v).toFixed(6)}`,
+      };
+}
+
+function activationExpr(varName, activation, leakySlope, t) {
   if (activation === "relu") {
-    return `max(${varName}, vec4<f32>(0.0))`;
+    return `max(${varName}, ${t.zeroV4})`;
   }
   if (activation === "leaky_relu") {
-    return `max(${varName}, ${varName} * ${Number(leakySlope).toFixed(6)})`;
+    return `max(${varName}, ${varName} * ${t.lit(leakySlope)})`;
   }
   return varName;
 }
@@ -53,11 +76,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 /**
- * First 3x3 convolution: 1-channel luma f32 buffer -> C_OUT_V4 planar vec4 buffer.
+ * First 3x3 convolution: 1-channel luma f32 buffer -> C_OUT_V4 planar vec4<F> buffer.
  */
-export function buildConvIn1Shader({ cOutV4, activation = "none", leakySlope = 0.1 }) {
-  const act = activationExpr("acc", activation, leakySlope);
-  return /* wgsl */ `
+export function buildConvIn1Shader({ cOutV4, activation = "none", leakySlope = 0.1, useF16 = false }) {
+  const t = types(useF16);
+  const act = activationExpr("acc", activation, leakySlope, t);
+  const castIn = useF16 ? "f16(inp[u32(sy) * dims.width + u32(sx)])" : "inp[u32(sy) * dims.width + u32(sx)]";
+  return /* wgsl */ `${t.enable}
 struct Dims {
   width: u32,
   height: u32,
@@ -70,10 +95,10 @@ const TILE_AREA: u32 = ${TILE_AREA}u;
 
 @group(0) @binding(0) var<uniform> dims: Dims;
 @group(0) @binding(1) var<storage, read> inp: array<f32>;
-@group(0) @binding(2) var<storage, read> params: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read_write> outBuf: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> params: array<${t.V4}>;
+@group(0) @binding(3) var<storage, read_write> outBuf: array<${t.V4}>;
 
-var<workgroup> tile: array<f32, ${TILE_AREA}>;
+var<workgroup> tile: array<${t.F}, ${TILE_AREA}>;
 
 @compute @workgroup_size(${WG_X}, ${WG_Y})
 fn main(
@@ -90,9 +115,9 @@ fn main(
     let sy = baseY + i32(ty);
     for (var tx = lid.x; tx < TILE_W; tx += ${WG_X}u) {
       let sx = baseX + i32(tx);
-      var v = 0.0;
+      var v = ${t.zeroF};
       if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
-        v = inp[u32(sy) * dims.width + u32(sx)];
+        v = ${castIn};
       }
       tile[ty * TILE_W + tx] = v;
     }
@@ -123,12 +148,13 @@ fn main(
 }
 
 /**
- * Dense 3x3 convolution: C_IN_V4 planar vec4 -> C_OUT_V4 planar vec4.
+ * Dense 3x3 convolution: C_IN_V4 planar vec4<F> -> C_OUT_V4 planar vec4<F>.
  */
-export function buildConvDenseShader({ cInV4, cOutV4, activation = "none", leakySlope = 0.1 }) {
-  const act = activationExpr("acc", activation, leakySlope);
+export function buildConvDenseShader({ cInV4, cOutV4, activation = "none", leakySlope = 0.1, useF16 = false }) {
+  const t = types(useF16);
+  const act = activationExpr("acc", activation, leakySlope, t);
   const sharedElems = TILE_AREA * cInV4;
-  return /* wgsl */ `
+  return /* wgsl */ `${t.enable}
 struct Dims {
   width: u32,
   height: u32,
@@ -141,11 +167,11 @@ const TILE_H: u32 = ${TILE_H}u;
 const TILE_AREA: u32 = ${TILE_AREA}u;
 
 @group(0) @binding(0) var<uniform> dims: Dims;
-@group(0) @binding(1) var<storage, read> inp: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> params: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read_write> outBuf: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> inp: array<${t.V4}>;
+@group(0) @binding(2) var<storage, read> params: array<${t.V4}>;
+@group(0) @binding(3) var<storage, read_write> outBuf: array<${t.V4}>;
 
-var<workgroup> tile: array<vec4<f32>, ${sharedElems}>;
+var<workgroup> tile: array<${t.V4}, ${sharedElems}>;
 
 @compute @workgroup_size(${WG_X}, ${WG_Y})
 fn main(
@@ -167,7 +193,7 @@ fn main(
       let pix = select(0u, u32(sy) * dims.width + u32(sx), inBounds);
       let tOff = ty * TILE_W + tx;
       for (var z = 0u; z < C_IN_V4; z++) {
-        tile[z * TILE_AREA + tOff] = select(vec4<f32>(0.0), inp[z * planeStride + pix], inBounds);
+        tile[z * TILE_AREA + tOff] = select(${t.zeroV4}, inp[z * planeStride + pix], inBounds);
       }
     }
   }
@@ -190,7 +216,7 @@ fn main(
         for (var kx = 0u; kx < 3u; kx++) {
           let v = tile[rowBase + kx];
           let mOff = zBase + (ky * 3u + kx) * 4u;
-          let m = mat4x4<f32>(params[mOff], params[mOff + 1u], params[mOff + 2u], params[mOff + 3u]);
+          let m = ${t.M4}(params[mOff], params[mOff + 1u], params[mOff + 2u], params[mOff + 3u]);
           acc += m * v;
         }
       }
@@ -204,10 +230,11 @@ fn main(
 /**
  * Grouped 4-channel 3x3 spatial conv + 1x1 pointwise mixing conv.
  */
-export function buildConvGroupedShader({ gV4, activation = "none", leakySlope = 0.1 }) {
-  const act = activationExpr("acc", activation, leakySlope);
+export function buildConvGroupedShader({ gV4, activation = "none", leakySlope = 0.1, useF16 = false }) {
+  const t = types(useF16);
+  const act = activationExpr("acc", activation, leakySlope, t);
   const sharedElems = TILE_AREA * gV4;
-  return /* wgsl */ `
+  return /* wgsl */ `${t.enable}
 struct Dims {
   width: u32,
   height: u32,
@@ -219,11 +246,11 @@ const TILE_H: u32 = ${TILE_H}u;
 const TILE_AREA: u32 = ${TILE_AREA}u;
 
 @group(0) @binding(0) var<uniform> dims: Dims;
-@group(0) @binding(1) var<storage, read> inp: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> params: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read_write> outBuf: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> inp: array<${t.V4}>;
+@group(0) @binding(2) var<storage, read> params: array<${t.V4}>;
+@group(0) @binding(3) var<storage, read_write> outBuf: array<${t.V4}>;
 
-var<workgroup> tile: array<vec4<f32>, ${sharedElems}>;
+var<workgroup> tile: array<${t.V4}, ${sharedElems}>;
 
 @compute @workgroup_size(${WG_X}, ${WG_Y})
 fn main(
@@ -245,7 +272,7 @@ fn main(
       let pix = select(0u, u32(sy) * dims.width + u32(sx), inBounds);
       let tOff = ty * TILE_W + tx;
       for (var z = 0u; z < G_V4; z++) {
-        tile[z * TILE_AREA + tOff] = select(vec4<f32>(0.0), inp[z * planeStride + pix], inBounds);
+        tile[z * TILE_AREA + tOff] = select(${t.zeroV4}, inp[z * planeStride + pix], inBounds);
       }
     }
   }
@@ -255,10 +282,10 @@ fn main(
     return;
   }
 
-  var grouped: array<vec4<f32>, ${gV4}>;
+  var grouped: array<${t.V4}, ${gV4}>;
   let spatialBase = G_V4;
   for (var z = 0u; z < G_V4; z++) {
-    var gAcc = vec4<f32>(0.0);
+    var gAcc = ${t.zeroV4};
     let zTile = z * TILE_AREA;
     let zSpatial = spatialBase + z * 36u;
     for (var ky = 0u; ky < 3u; ky++) {
@@ -266,7 +293,7 @@ fn main(
       for (var kx = 0u; kx < 3u; kx++) {
         let v = tile[rowBase + kx];
         let mOff = zSpatial + (ky * 3u + kx) * 4u;
-        let m = mat4x4<f32>(params[mOff], params[mOff + 1u], params[mOff + 2u], params[mOff + 3u]);
+        let m = ${t.M4}(params[mOff], params[mOff + 1u], params[mOff + 2u], params[mOff + 3u]);
         gAcc += m * v;
       }
     }
@@ -281,7 +308,7 @@ fn main(
     let pMix = mixBase + p * G_V4 * 4u;
     for (var z = 0u; z < G_V4; z++) {
       let mOff = pMix + z * 4u;
-      let m = mat4x4<f32>(params[mOff], params[mOff + 1u], params[mOff + 2u], params[mOff + 3u]);
+      let m = ${t.M4}(params[mOff], params[mOff + 1u], params[mOff + 2u], params[mOff + 3u]);
       acc += m * grouped[z];
     }
     outBuf[p * planeStride + outPix] = ${act};
@@ -297,10 +324,12 @@ fn main(
  *   3. Performs 2x2 depth-to-space + optional bilinear input_skip + clamp(0, 1)
  *   4. Composites upscaled luma with 2x bilinear BT.709 chroma and writes 2x2 RGBA pixels.
  */
-export function buildFinalD2SRgbShader({ cInV4, inputSkip }) {
+export function buildFinalD2SRgbShader({ cInV4, inputSkip, useF16 = false }) {
+  const t = types(useF16);
   const sharedElems = TILE_AREA * cInV4;
   const skipExpr = inputSkip ? " + yBilin" : "";
-  return /* wgsl */ `
+  const accOut = useF16 ? "vec4<f32>(acc)" : "acc";
+  return /* wgsl */ `${t.enable}
 struct Dims {
   width: u32,
   height: u32,
@@ -312,14 +341,14 @@ const TILE_H: u32 = ${TILE_H}u;
 const TILE_AREA: u32 = ${TILE_AREA}u;
 
 @group(0) @binding(0) var<uniform> dims: Dims;
-@group(0) @binding(1) var<storage, read> mixBuf: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> skipBuf: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read> params: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> mixBuf: array<${t.V4}>;
+@group(0) @binding(2) var<storage, read> skipBuf: array<${t.V4}>;
+@group(0) @binding(3) var<storage, read> params: array<${t.V4}>;
 @group(0) @binding(4) var srcTex: texture_2d<f32>;
 @group(0) @binding(5) var linSampler: sampler;
 @group(0) @binding(6) var outTex: texture_storage_2d<rgba8unorm, write>;
 
-var<workgroup> tile: array<vec4<f32>, ${sharedElems}>;
+var<workgroup> tile: array<${t.V4}, ${sharedElems}>;
 
 fn writeSubpixel(ox: u32, oy: u32, resY: f32, invOutSize: vec2<f32>) {
   let uv = (vec2<f32>(f32(ox), f32(oy)) + vec2<f32>(0.5, 0.5)) * invOutSize;
@@ -355,7 +384,7 @@ fn main(
       let tOff = ty * TILE_W + tx;
       for (var z = 0u; z < C_IN_V4; z++) {
         let idx = z * planeStride + pix;
-        tile[z * TILE_AREA + tOff] = select(vec4<f32>(0.0), mixBuf[idx] + skipBuf[idx], inBounds);
+        tile[z * TILE_AREA + tOff] = select(${t.zeroV4}, mixBuf[idx] + skipBuf[idx], inBounds);
       }
     }
   }
@@ -375,19 +404,20 @@ fn main(
       for (var kx = 0u; kx < 3u; kx++) {
         let v = tile[rowBase + kx];
         let mOff = zBase + (ky * 3u + kx) * 4u;
-        let m = mat4x4<f32>(params[mOff], params[mOff + 1u], params[mOff + 2u], params[mOff + 3u]);
+        let m = ${t.M4}(params[mOff], params[mOff + 1u], params[mOff + 2u], params[mOff + 3u]);
         acc += m * v;
       }
     }
   }
 
+  let outF32 = ${accOut};
   let ox = gid.x * 2u;
   let oy = gid.y * 2u;
   let invOutSize = vec2<f32>(1.0 / f32(dims.width * 2u), 1.0 / f32(dims.height * 2u));
-  writeSubpixel(ox, oy, acc.x, invOutSize);
-  writeSubpixel(ox + 1u, oy, acc.y, invOutSize);
-  writeSubpixel(ox, oy + 1u, acc.z, invOutSize);
-  writeSubpixel(ox + 1u, oy + 1u, acc.w, invOutSize);
+  writeSubpixel(ox, oy, outF32.x, invOutSize);
+  writeSubpixel(ox + 1u, oy, outF32.y, invOutSize);
+  writeSubpixel(ox, oy + 1u, outF32.z, invOutSize);
+  writeSubpixel(ox + 1u, oy + 1u, outF32.w, invOutSize);
 }
 `;
 }
