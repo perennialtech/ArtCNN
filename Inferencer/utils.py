@@ -1,6 +1,5 @@
 import numpy as np
 import cv2
-from onnxconverter_common import float16
 
 
 def rgb2ycbcr_bt709(image):
@@ -85,53 +84,41 @@ def bilinear(image, scaling_factor):
 
 
 def unstack(image):
-    image = np.squeeze(image)
-    return tuple(np.unstack(image, axis=-1))
+    return tuple(np.moveaxis(image, -1, 0))
 
 
 def stack(*channels):
-    squeezed_channels = [np.squeeze(ch) for ch in channels]
-    image = np.stack(squeezed_channels, axis=-1)
-    return image
+    planes = [ch[..., 0] if ch.ndim == 3 and ch.shape[-1] == 1 else ch for ch in channels]
+    return np.stack(planes, axis=-1)
 
 
 def self_ensemble_augment(image):
-    rotations = [0, 90, 180, 270]
-    images = []
-
-    for rotation in rotations:
-        rotated_image = np.rot90(image.copy(), rotation // 90)
-        images.append(rotated_image)
-
-    image = cv2.flip(image, 1)
-
-    for rotation in rotations:
-        rotated_image = np.rot90(image.copy(), rotation // 90)
-        images.append(rotated_image)
-
-    return images
+    flipped = np.flip(image, axis=1)
+    return [np.rot90(view, turns) for view in (image, flipped) for turns in range(4)]
 
 
 def self_ensemble_combine(images):
-    assert len(images) == 8, "Expected 8 images"
-    deaugmented = []
-
-    for i, rotation in enumerate([0, 90, 180, 270]):
-        img = images[i].copy()
-        img = np.rot90(img, -rotation // 90)
-        deaugmented.append(np.squeeze(img))
-
-    for i, rotation in enumerate([0, 90, 180, 270]):
-        img = images[i + 4].copy()
-        img = np.rot90(img, -rotation // 90)
-        img = cv2.flip(img, 1)
-        deaugmented.append(np.squeeze(img))
-
-    deaugmented = np.array(deaugmented)
-    image = np.mean(deaugmented, axis=0, keepdims=False)
-    return image
+    total = None
+    count = 0
+    for index, image in enumerate(images):
+        if index == 8:
+            raise ValueError("Expected eight ensemble images.")
+        restored = np.rot90(image, -(index % 4))
+        if index >= 4:
+            restored = np.flip(restored, axis=1)
+        if total is None:
+            dtype = restored.dtype
+            total = restored.astype(np.result_type(dtype, np.float32), copy=True)
+        else:
+            total += restored
+        count += 1
+    if count != 8:
+        raise ValueError("Expected eight ensemble images.")
+    total /= count
+    return total.astype(dtype, copy=False)
 
 
 def convert_to_fp16(model_fp32):
-    model_fp16 = float16.convert_float_to_float16(model_fp32)
-    return model_fp16
+    from onnxconverter_common import float16
+
+    return float16.convert_float_to_float16(model_fp32)
