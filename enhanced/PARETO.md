@@ -20,7 +20,7 @@ Each stock C-series shader is dominated in each of the four measured conditions.
 | `ArtCNN_C3F8_Fast` | 508.0 | Spline36 reached 578.6 FPS. The compact model gained 1.78 dB on clean input and 0.60 dB on H.264. |
 | `ArtCNN_C4F32_Restore` | 117.5 | The strongest stock H.264 result came from C4F32 DS at 40.9 FPS. Restore improved H.264 PSNR by 0.09 dB and blur PSNR by 0.59 dB. |
 
-The exact C4F16 and C4F32 versions reached 270.2 and 50.7 FPS. The corresponding DS exact versions reached 271.1 and 50.6 FPS. All four matched stock 16-bit luma on every scored frame. All six FMA presets stayed within 0.013 dB mean PSNR of the corresponding stock preset in every condition. [Frontier chart](pareto/frontier.png) · [Full measurements](pareto/frontier.json)
+The exact C4F16 and C4F32 versions reached 270.2 and 50.7 FPS. The corresponding DS exact versions reached 271.1 and 50.6 FPS. All four matched stock 16-bit luma on every scored frame. All six FMA presets stayed within 0.013 dB mean PSNR of the corresponding stock preset in every condition. [PSNR frontier chart](pareto/frontier.png) · [LPIPS frontier chart](pareto/perceptual_lpips_frontier.png) · [DISTS frontier chart](pareto/perceptual_dists_frontier.png) · [Full measurements](pareto/frontier.json) · [Perceptual holdout](pareto/perceptual_holdout_v3.json)
 
 At 720p → 1440p, the FMA C4F32 reached 263.7 FPS versus 92.1 for stock. The FMA C4F16 reached 533.5 FPS versus 520.6 for stock. The measured C4F16 improvement was larger at 4K. [720p repeat ranges](pareto/timing-720.json)
 
@@ -79,6 +79,8 @@ The timing command uses 1080p → 2160p input upload and Vulkan rendering with G
 For quality runs on systems where libplacebo creates the Vulkan device, set `ARTCNN_INTERNAL_VULKAN=1` and set `ARTCNN_VULKAN_DEVICE` to the reported GPU name.
 
 ## Experiments that reached a limit
+
+- A lightweight luma-guided 2-layer 12-channel `CHROMA` shader (`C2F12_Chroma`) improved over bilinear on 96 held-out frames (`53.70` vs. `53.13 dB` Chroma PSNR; `0.0015` vs. `0.0028` RGB DISTS) but trailed plain bicubic (`54.03 dB`, `0.0012` RGB DISTS), so it was omitted from the shipped shader catalog.
 
 - The shader sweep tried nine workgroup shapes. The direct FMA kernel favored 8×8 on the dense stock C4F16 and 16×8 on the grouped C4F16.
 - The Winograd trial reached 154 FPS in FP16 and 146 FPS in FP32 in 4K screening. Stock C4F16 reached 257 FPS in that screening round.

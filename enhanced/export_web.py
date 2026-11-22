@@ -18,6 +18,8 @@ DEFAULT_CATALOG: List[Tuple[str, str, str, str]] = [
     ("ArtCNN_C4F16_Balanced", "C4F16 Balanced", "Balanced preset for mixed clean and compressed sources", "ArtCNN_C4F16_Balanced.npz"),
     ("ArtCNN_C4F16_Restore", "C4F16 Restore", "Restores blurred or compressed animation sources", "ArtCNN_C4F16_Restore.npz"),
     ("ArtCNN_C4F16_Grouped", "C4F16 Grouped", "Grouped 16-channel model for lower compute cost", "ArtCNN_C4F16_Grouped.npz"),
+    ("ArtCNN_C6F16_Restore", "C6F16 Restore", "Deeper 6-layer 16-channel restoration model with larger receptive field", "ArtCNN_C6F16_Restore.npz"),
+    ("ArtCNN_C4F32_Clean", "C4F32 Clean", "Wider 32-channel clean model for high-end GPUs", "ArtCNN_C4F32_Clean.npz"),
     ("ArtCNN_C4F32_Restore", "C4F32 Restore", "Wider 32-channel restoration model for high-end GPUs", "ArtCNN_C4F32_Restore.npz"),
 ]
 
