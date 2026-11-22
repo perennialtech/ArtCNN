@@ -32,7 +32,7 @@ Try the [live WebGPU demo](https://perennialtech.github.io/ArtCNN/) directly in 
 
 ```sh
 python3 -m http.server 8000
-# Open http://localhost:8000/Web/demo/
+# Open http://localhost:8000/
 ```
 
 To embed ArtCNN directly in a web app with zero dependencies (automatic WebGPU → CPU fallback):

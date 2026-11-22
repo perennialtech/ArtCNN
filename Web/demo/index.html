@@ -5,64 +5,90 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ArtCNN WebGPU Demo</title>
+    <title>ArtCNN — 2x anime upscaling in the browser</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+    />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <main class="app">
-      <header>
-        <div>
-          <h1>ArtCNN in the Browser</h1>
-          <p>Real-time 2&times; anime upscaling via WebGPU compute shaders (with automatic CPU fallback).</p>
+    <div class="workbench">
+      <header class="masthead">
+        <div class="brand">
+          <h1>ArtCNN</h1>
+          <p>2x anime upscaling in your browser</p>
         </div>
-        <div class="badge-row">
-          <span id="backendBadge" class="badge">Initializing&hellip;</span>
-          <span id="sizeBadge" class="badge">&mdash;</span>
-          <span id="timingBadge" class="badge">&mdash;</span>
+        <div class="telemetry">
+          <span class="telemetry-engine">
+            <span id="engineDot" class="engine-dot"></span>
+            <span id="engineLabel">Starting</span>
+          </span>
+          <span id="sizeReadout" class="telemetry-value"></span>
+          <span id="timingReadout" class="telemetry-value"></span>
+          <a class="repo-link" href="https://github.com/perennialtech/ArtCNN">GitHub</a>
         </div>
       </header>
 
-      <section class="controls" aria-label="Upscaler controls">
-        <div class="field">
-          <label for="modelSelect">Model</label>
-          <select id="modelSelect"></select>
-        </div>
-        <div class="field">
-          <label for="backendSelect">Backend</label>
-          <select id="backendSelect">
-            <option value="auto" selected>Auto (WebGPU &rarr; CPU)</option>
-            <option value="webgpu">WebGPU</option>
-            <option value="cpu">CPU (Float32Array)</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="splitRange">Split (Bilinear / ArtCNN): <span id="splitValue">50%</span></label>
-          <input id="splitRange" type="range" min="0" max="100" value="50" />
-        </div>
-        <div class="actions">
-          <button id="openFileBtn" type="button">Open Image / Video</button>
-          <button id="sampleBtn" type="button">Sample Pattern</button>
-          <button id="downloadBtn" type="button">Save PNG</button>
-          <input id="fileInput" type="file" accept="image/*,video/*" />
-        </div>
-      </section>
-
-      <section id="videoBar" class="video-bar">
-        <button id="playPauseBtn" type="button">Pause</button>
-        <span id="videoStatus" class="hint">Playing video&hellip;</span>
-      </section>
-
-      <section id="dropZone" class="stage-wrap">
-        <div id="canvasContainer" class="canvas-container">
+      <main id="dropZone" class="stage">
+        <div id="viewer" class="viewer">
           <canvas id="outputCanvas"></canvas>
-          <div id="splitLine" class="split-line"></div>
-          <span class="split-label left">Bilinear 2&times;</span>
-          <span id="rightLabel" class="split-label right">ArtCNN 2&times;</span>
+          <div id="curtain" class="curtain">
+            <div
+              id="curtainHandle"
+              class="curtain-handle"
+              role="slider"
+              tabindex="0"
+              aria-label="Compare bilinear and ArtCNN"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="50"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <polyline points="8 7 3 12 8 17"></polyline>
+                <polyline points="16 7 21 12 16 17"></polyline>
+              </svg>
+            </div>
+          </div>
+          <span class="side-tag left">Bilinear</span>
+          <span id="rightLabel" class="side-tag right">ArtCNN</span>
         </div>
-      </section>
+      </main>
 
-      <p id="statusText" class="hint">Drop any image or video onto the viewer, or drag across the canvas to compare.</p>
-    </main>
+      <footer class="rail">
+        <div class="rail-row">
+          <div class="rail-group">
+            <div class="control">
+              <label for="modelSelect">Model</label>
+              <select id="modelSelect"></select>
+            </div>
+            <div class="control">
+              <label for="backendSelect">Engine</label>
+              <select id="backendSelect">
+                <option value="auto" selected>Auto</option>
+                <option value="webgpu">WebGPU</option>
+                <option value="cpu">CPU</option>
+              </select>
+            </div>
+            <div id="videoControls" class="video-controls">
+              <button id="playPauseBtn" type="button">Pause</button>
+              <span id="videoName"></span>
+            </div>
+          </div>
+          <div class="rail-group">
+            <button id="openFileBtn" class="primary" type="button">Open image or video</button>
+            <button id="sampleBtn" type="button">Reset sample</button>
+            <button id="downloadBtn" type="button">Save PNG</button>
+            <input id="fileInput" type="file" accept="image/*,video/*" />
+          </div>
+        </div>
+        <div class="rail-meta">
+          <p id="statusText">Drag across the frame to compare, or drop any image or video onto the stage.</p>
+        </div>
+      </footer>
+    </div>
 
     <script type="module" src="./demo.js"></script>
   </body>
