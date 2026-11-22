@@ -510,10 +510,9 @@ fn vsMain(@builtin(vertex_index) idx: u32) -> VSOut {
 
 @fragment
 fn fsMain(in: VSOut) -> @location(0) vec4<f32> {
-  if (in.uv.x < params.split) {
-    return textureSample(srcTex, linSampler, in.uv);
-  }
-  return textureSample(upTex, linSampler, in.uv);
+  let srcCol = textureSample(srcTex, linSampler, in.uv);
+  let upCol = textureSample(upTex, linSampler, in.uv);
+  return select(upCol, srcCol, in.uv.x < params.split);
 }
 `;
 }
