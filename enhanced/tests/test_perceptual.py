@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 perennialtech contributors
 # SPDX-License-Identifier: MIT
 
-"""Tests for PyTorch perceptual losses, halo metric, and lossless FoldableECB."""
+"""Tests for PyTorch perceptual losses, DISTS, halo metric, and lossless FoldableECB/FoldableGroupedECB."""
 from __future__ import annotations
 
 import sys
@@ -13,8 +13,11 @@ import torch
 from torch import nn
 
 from artcnn.perceptual import (
+    DISTS,
     FoldableECB,
+    FoldableGroupedECB,
     fft_magnitude_loss,
+    find_dists_weights,
     halo_ringing_mae,
     ms_ssim_loss,
     sobel_edge_loss,
@@ -52,7 +55,6 @@ def test_foldable_ecb_lossless_init_and_fold() -> None:
     diff_init = (conv(x) - ecb(x)).abs().max().item()
     assert diff_init < 1e-5, f"Init mismatch: {diff_init}"
 
-    # Mutate all branches and verify folded 3x3 matches multibranch forward
     with torch.no_grad():
         ecb.conv1.weight.normal_(0, 0.05)
         ecb.conv1.bias.normal_(0, 0.02)
@@ -67,6 +69,40 @@ def test_foldable_ecb_lossless_init_and_fold() -> None:
     assert diff_fold < 1e-5, f"Fold mismatch: {diff_fold}"
 
 
+def test_foldable_grouped_ecb_lossless_init_and_fold() -> None:
+    torch.manual_seed(4)
+    conv = nn.Conv2d(16, 16, 3, padding=1, groups=4, bias=False)
+    gecb = FoldableGroupedECB(16, groups=4)
+    gecb.initialize_from_weight(conv.weight)
+    x = torch.randn(2, 16, 20, 20)
+    diff_init = (conv(x) - gecb(x)).abs().max().item()
+    assert diff_init < 1e-5, f"Grouped init mismatch: {diff_init}"
+
+    with torch.no_grad():
+        gecb.conv1.weight.normal_(0, 0.05)
+        gecb.sobel_x_mix.weight.normal_(0, 0.03)
+        gecb.sobel_y_mix.weight.normal_(0, 0.03)
+    w_eq = gecb.fold_weight()
+    folded = nn.Conv2d(16, 16, 3, padding=1, groups=4, bias=False)
+    with torch.no_grad():
+        folded.weight.copy_(w_eq)
+    diff_fold = (gecb(x) - folded(x)).abs().max().item()
+    assert diff_fold < 1e-5, f"Grouped fold mismatch: {diff_fold}"
+
+
+def test_dists_when_weights_available() -> None:
+    found = find_dists_weights()
+    if found is None:
+        return
+    dists = DISTS(*found)
+    torch.manual_seed(5)
+    x = torch.rand(1, 1, 128, 128)
+    assert abs(dists(x, x).item()) < 1e-5
+    y = (x + 0.05 * torch.randn_like(x)).clamp(0, 1).requires_grad_(True)
+    d = dists(y, x)
+    assert d.item() > 0.01
+    d.backward()
+    assert y.grad is not None and torch.isfinite(y.grad).all()
 
 
 def test_discriminators_and_gan_losses() -> None:
@@ -76,6 +112,7 @@ def test_discriminators_and_gan_losses() -> None:
         feature_matching_loss,
         gan_d_loss,
         gan_g_loss,
+        subpixel_shimmer_loss,
     )
     torch.manual_seed(3)
     real = torch.rand(2, 1, 64, 64)
@@ -90,10 +127,17 @@ def test_discriminators_and_gan_losses() -> None:
         fm = feature_matching_loss(r_ft, f_ft)
         assert torch.isfinite(fm) and fm.item() > 0
 
+    tiny = nn.Sequential(nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False))
+    for shift in ((1, 0), (0, 1), (1, 1)):
+        s = subpixel_shimmer_loss(tiny, real, fake, lambda h: nn.functional.avg_pool2d(h, 2), shift=shift)
+        assert torch.isfinite(s) and s.item() >= 0
+
 
 if __name__ == "__main__":
     test_perceptual_losses_zero_on_identity()
     test_perceptual_losses_backward()
     test_foldable_ecb_lossless_init_and_fold()
+    test_foldable_grouped_ecb_lossless_init_and_fold()
+    test_dists_when_weights_available()
     test_discriminators_and_gan_losses()
     print("ALL PERCEPTUAL TESTS PASSED.")

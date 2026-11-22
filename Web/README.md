@@ -23,6 +23,8 @@ The pre-exported bundles in [`Web/models/`](models/) ship both FP32 (`.bin`) and
 | [`ArtCNN_C4F16_Clean`](models/ArtCNN_C4F16_Clean.json) | C4F16 | 25 KB | 49 KB | Preserve fine detail in clean animation sources |
 | [`ArtCNN_C4F16_Balanced`](models/ArtCNN_C4F16_Balanced.json) | C4F16 | 25 KB | 49 KB | Mixed clean, blurred, and compressed sources |
 | [`ArtCNN_C4F16_Restore`](models/ArtCNN_C4F16_Restore.json) | C4F16 | 25 KB | 49 KB | Restore blurred or compressed sources |
+| [`ArtCNN_C6F16_Restore`](models/ArtCNN_C6F16_Restore.json) | C6F16 | 34 KB | 68 KB | Deeper 6-layer 16-channel restoration model with larger receptive field |
+| [`ArtCNN_C4F32_Clean`](models/ArtCNN_C4F32_Clean.json) | C4F32 | 94 KB | 187 KB | Wider 32-channel clean model for dedicated GPUs |
 | [`ArtCNN_C4F32_Restore`](models/ArtCNN_C4F32_Restore.json) | C4F32 | 94 KB | 187 KB | Wider 32-channel restoration model for dedicated GPUs |
 
 ## JavaScript API

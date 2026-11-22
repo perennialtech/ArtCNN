@@ -32,8 +32,11 @@ from artcnn.glsl_export import export_artcnn_glsl
 from artcnn.models_np import ArtCNNC, ArtCNNCConfig
 from artcnn.perceptual import (
     AlexNetLPIPS,
+    DISTS,
     FoldableECB,
+    FoldableGroupedECB,
     fft_magnitude_loss,
+    find_dists_weights,
     find_lpips_weights,
     halo_ringing_mae,
     sobel_edge_loss,
@@ -48,25 +51,50 @@ RECIPES = {
     "restoration": (0.12, 0.38, 0.50),
 }
 
+RECIPES_4 = {
+    "clean": (0.86, 0.06, 0.04, 0.04),
+    "balanced": (0.42, 0.20, 0.20, 0.18),
+    "restoration": (0.10, 0.28, 0.30, 0.32),
+}
+
 
 class GroupedMix(nn.Module):
-    def __init__(self, filters: int):
+    def __init__(self, filters: int, use_ecb: bool = False):
         super().__init__()
-        self.spatial = nn.Conv2d(filters, filters, 3, padding=1, groups=filters // 4, bias=False)
+        self.use_ecb = use_ecb
+        if use_ecb:
+            self.spatial = FoldableGroupedECB(filters, groups=filters // 4)
+        else:
+            self.spatial = nn.Conv2d(filters, filters, 3, padding=1, groups=filters // 4, bias=False)
         self.mix = nn.Conv2d(filters, filters, 1)
 
     def forward(self, x):
         return self.mix(self.spatial(x))
 
     @torch.no_grad()
+    def load_spatial_weight(self, spatial_w: torch.Tensor) -> None:
+        if isinstance(self.spatial, FoldableGroupedECB):
+            self.spatial.initialize_from_weight(spatial_w)
+        else:
+            self.spatial.weight.copy_(spatial_w)
+
+    @torch.no_grad()
+    def folded_spatial_weight(self) -> np.ndarray:
+        if isinstance(self.spatial, FoldableGroupedECB):
+            return self.spatial.fold_weight().detach().cpu().numpy().copy()
+        return self.spatial.weight.detach().cpu().numpy().copy()
+
+    @torch.no_grad()
     def initialize(self, weight, bias):
+        spatial_w = torch.empty((len(weight), 4, 3, 3), dtype=torch.float32)
         for start in range(0, len(weight), 4):
             channels = slice(start, start + 4)
             u, s, vh = np.linalg.svd(weight[:, channels].reshape(len(weight), -1), full_matrices=False)
             scale = np.sqrt(s[:4])
-            self.spatial.weight[channels].copy_(torch.from_numpy((scale[:, None] * vh[:4]).reshape(4, 4, 3, 3)))
+            spatial_w[channels].copy_(torch.from_numpy((scale[:, None] * vh[:4]).reshape(4, 4, 3, 3)))
             mixing = torch.from_numpy(u[:, :4] * scale[None, :])
             self.mix.weight[:, channels, 0, 0].copy_(mixing)
+        self.load_spatial_weight(spatial_w)
         self.mix.bias.copy_(torch.from_numpy(bias.copy()))
 
 
@@ -75,13 +103,13 @@ class Model(nn.Module):
         super().__init__()
         self.config = config
         self.grouped = grouped
-        self.use_ecb = use_ecb and not grouped
+        self.use_ecb = use_ecb
         filters = config.filters
         middle = []
         for i in range(config.internal_layers + 1):
             if grouped:
-                middle.append(GroupedMix(filters))
-            elif self.use_ecb and i < config.internal_layers:
+                middle.append(GroupedMix(filters, use_ecb=(use_ecb and i < config.internal_layers)))
+            elif use_ecb and i < config.internal_layers:
                 middle.append(FoldableECB(filters, filters))
             else:
                 middle.append(nn.Conv2d(filters, filters, 3, padding=1))
@@ -134,9 +162,9 @@ class Model(nn.Module):
                 raise ValueError(f"Checkpoint configuration does not match: {path}")
             for (name, _), layer in zip(ArtCNNC(self.config).layers(), self.convs, strict=True):
                 if isinstance(layer, GroupedMix):
-                    layer.spatial.weight.copy_(torch.from_numpy(data[f"{name}.spatial"]))
-                    layer.mix.weight.copy_(torch.from_numpy(data[f"{name}.mix"][:, :, None, None]))
-                    layer.mix.bias.copy_(torch.from_numpy(data[f"{name}.b"]))
+                    layer.load_spatial_weight(torch.from_numpy(data[f"{name}.spatial"].copy()))
+                    layer.mix.weight.copy_(torch.from_numpy(data[f"{name}.mix"][:, :, None, None].copy()))
+                    layer.mix.bias.copy_(torch.from_numpy(data[f"{name}.b"].copy()))
                 else:
                     self._load_conv_weights(layer, data[f"{name}.W"], data[f"{name}.b"])
 
@@ -145,7 +173,7 @@ class Model(nn.Module):
         kernels, extra = {}, {}
         for (name, dst), src in zip(portable.layers(), self.convs, strict=True):
             if isinstance(src, GroupedMix):
-                spatial = src.spatial.weight.detach().cpu().numpy().copy()
+                spatial = src.folded_spatial_weight()
                 mixing = src.mix.weight.detach().cpu().numpy()[:, :, 0, 0].copy()
                 for start in range(0, len(spatial), 4):
                     channels = slice(start, start + 4)
@@ -209,9 +237,11 @@ class Pairs:
     def __init__(self, path: Path):
         self.sources = []
         index = json.loads((path / "index.json").read_text())
+        self.has_hevc = all((path / f"{g['stem']}-hevc.npy").exists() for g in index)
+        kinds = ("hr", "qp24", "qp32", "hevc") if self.has_hevc else ("hr", "qp24", "qp32")
         for group in index:
             stem = group["stem"]
-            levels = [np.load(path / f"{stem}-{kind}.npy", mmap_mode="r") for kind in ("hr", "qp24", "qp32")]
+            levels = [np.load(path / f"{stem}-{kind}.npy", mmap_mode="r") for kind in kinds]
             self.sources.extend(zip(*levels, strict=True))
         if not self.sources:
             raise ValueError(f"Empty paired dataset: {path}")
@@ -220,6 +250,9 @@ class Pairs:
         ref, *compressed = self.sources[index]
         hr = ref[y:y + size, x:x + size]
         lr = compressed[qp_index][y // 2:(y + size) // 2, x // 2:(x + size) // 2]
+        if self.has_hevc:
+            hevc = compressed[2][y // 2:(y + size) // 2, x // 2:(x + size) // 2]
+            return hr, lr, hevc
         return hr, lr
 
 
@@ -239,17 +272,28 @@ class Patches(Dataset):
         h, w = self.source.sources[i][0].shape
         level = int(rng.integers(2))
         search = 3 if rng.random() < 0.55 else 1
+        hevc = None
         for _ in range(search):
             y = int(rng.integers((h - self.patch) // 2 + 1)) * 2
             x = int(rng.integers((w - self.patch) // 2 + 1)) * 2
-            hr, lr = self.source.crop(i, y, x, self.patch, level)
+            cropped = self.source.crop(i, y, x, self.patch, level)
+            if self.source.has_hevc:
+                hr, lr, hevc = cropped
+            else:
+                hr, lr = cropped
             if hr[::4, ::4].std() > 15:
                 break
         angle = int(rng.integers(4))
         hr, lr = np.rot90(hr, angle), np.rot90(lr, angle)
+        if hevc is not None:
+            hevc = np.rot90(hevc, angle)
         if rng.random() < 0.5:
             hr, lr = hr[:, ::-1], lr[:, ::-1]
-        return np.ascontiguousarray(hr[None]), np.ascontiguousarray(lr[None])
+            if hevc is not None:
+                hevc = hevc[:, ::-1]
+        if hevc is not None:
+            return np.ascontiguousarray(hr[None]), np.ascontiguousarray(lr[None]), np.ascontiguousarray(hevc[None])
+        return np.ascontiguousarray(hr[None]), np.ascontiguousarray(lr[None]), np.ascontiguousarray(lr[None])
 
 
 def gaussian(inputs, sigma):
@@ -269,14 +313,16 @@ def quantize(x):
     return (219 * x).round().clamp_(0, 219) / 219
 
 
-def degradation(hr, compressed, mode, sigma=0.8, rng=None, extended=False):
+def degradation(hr, compressed, mode, sigma=0.8, rng=None, extended=False, hevc=None):
+    if mode == 3 and hevc is not None:
+        if extended and rng is not None and rng.random() < 0.20:
+            return quantize(unsharp_ringing(hevc, float(rng.uniform(0.10, 0.28)), 0.75))
+        return hevc
     if mode == 2:
         if extended and rng is not None and rng.random() < 0.30:
-            # Blend slight bicubic-sharpening/ringing or mild blur into compressed regime
             if rng.random() < 0.5:
                 return quantize(unsharp_ringing(compressed, float(rng.uniform(0.15, 0.35)), 0.75))
             bic = F.interpolate(hr, scale_factor=0.5, mode="bicubic", align_corners=False, antialias=True).clamp(0, 1)
-            # Add compression residual from x264 onto bicubic downscale to simulate bicubic+codec
             area = quantize(F.avg_pool2d(hr, 2))
             return quantize((bic + (compressed - area)).clamp(0, 1))
         return compressed
@@ -289,21 +335,31 @@ def degradation(hr, compressed, mode, sigma=0.8, rng=None, extended=False):
     return quantize(F.avg_pool2d(filtered, 2))
 
 
-def tensors(hr, lr, device):
-    return hr.to(device, non_blocking=True).float() / 255, (lr.to(device, non_blocking=True).float() - 16) / 219
+def tensors(hr, lr, device, hevc=None):
+    h = hr.to(device, non_blocking=True).float() / 255
+    l = (lr.to(device, non_blocking=True).float() - 16) / 219
+    if hevc is None:
+        return h, l
+    e = (hevc.to(device, non_blocking=True).float() - 16) / 219
+    return h, l, e
 
 
 @torch.no_grad()
-def validate(model, samples, device, lpips_fn=None):
+def validate(model, samples, device, lpips_fn=None, dists_fn=None, has_hevc: bool = False):
     model.eval()
-    psnr_report, ssim_report, lpips_report, edge_report, halo_report = [], [], [], [], []
+    psnr_report, ssim_report, lpips_report, dists_report, edge_report, halo_report = [], [], [], [], [], []
     sx = torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]], device=device).view(1, 1, 3, 3) / 8.0
     sy = torch.tensor([[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]], device=device).view(1, 1, 3, 3) / 8.0
-    for mode in range(3):
-        psnrs, ssims, lps, edges, halos = [], [], [], [], []
-        for hr, lr in samples:
-            hr, lr = tensors(hr, lr, device)
-            pred = model(degradation(hr, lr, mode).to(memory_format=torch.channels_last)).clamp_(0, 1)
+    num_modes = 4 if has_hevc else 3
+    for mode in range(num_modes):
+        psnrs, ssims, lps, dts, edges, halos = [], [], [], [], [], []
+        for batch in samples:
+            if has_hevc:
+                hr, lr, hevc = tensors(batch[0], batch[1], device, batch[2])
+            else:
+                hr, lr = tensors(batch[0], batch[1], device)
+                hevc = None
+            pred = model(degradation(hr, lr, mode, hevc=hevc).to(memory_format=torch.channels_last)).clamp_(0, 1)
             p_in = pred[:, :, 16:-16, 16:-16]
             t_in = hr[:, :, 16:-16, 16:-16]
             residual = p_in - t_in
@@ -311,6 +367,8 @@ def validate(model, samples, device, lpips_fn=None):
             ssims.append(float(ssim_map(p_in, t_in)[0].mean().item()))
             if lpips_fn is not None:
                 lps.append(float(lpips_fn(p_in, t_in).item()))
+            if dists_fn is not None:
+                dts.append(float(dists_fn(p_in, t_in).item()))
             gx_t, gy_t = F.conv2d(t_in, sx, padding=1), F.conv2d(t_in, sy, padding=1)
             gx_p, gy_p = F.conv2d(p_in, sx, padding=1), F.conv2d(p_in, sy, padding=1)
             mask = torch.hypot(gx_t, gy_t) > 0.04
@@ -320,12 +378,14 @@ def validate(model, samples, device, lpips_fn=None):
         psnr_report.append(float(np.mean(psnrs)))
         ssim_report.append(float(np.mean(ssims)))
         lpips_report.append(float(np.mean(lps)) if lps else 0.0)
+        dists_report.append(float(np.mean(dts)) if dts else 0.0)
         edge_report.append(float(np.mean(edges)) if edges else 0.0)
         halo_report.append(float(np.mean(halos)))
     return {
         "psnr": psnr_report,
         "ssim": ssim_report,
         "lpips": lpips_report,
+        "dists": dists_report,
         "edge_mae": edge_report,
         "halo_mae": halo_report,
     }
@@ -333,9 +393,10 @@ def validate(model, samples, device, lpips_fn=None):
 
 def validation_samples(path):
     source = Pairs(path)
-    hr, lr = [], []
+    hr, lr, hevcs = [], [], []
     patch = 192
-    for i, (image, _, _) in enumerate(source.sources):
+    for i, entry in enumerate(source.sources):
+        image = entry[0]
         height, width = image.shape
         side = min(patch, height, width) // 4 * 4
         if side != patch:
@@ -343,13 +404,21 @@ def validation_samples(path):
         for factor in (0.32, 0.63):
             y = int((height - side) * factor) // 2 * 2
             x = int((width - side) * (1 - factor)) // 2 * 2
-            hi, lo = source.crop(i, y, x, side, 1)
+            cropped = source.crop(i, y, x, side, 1)
+            if source.has_hevc:
+                hi, lo, hv = cropped
+                hevcs.append(hv[None])
+            else:
+                hi, lo = cropped
             hr.append(hi[None])
             lr.append(lo[None])
     if not hr:
         raise ValueError("No validation patches large enough")
     h, l = torch.tensor(np.stack(hr)), torch.tensor(np.stack(lr))
-    return list(zip(h.split(8), l.split(8), strict=True))
+    if source.has_hevc:
+        e = torch.tensor(np.stack(hevcs))
+        return list(zip(h.split(8), l.split(8), e.split(8), strict=True)), True
+    return list(zip(h.split(8), l.split(8), strict=True)), False
 
 
 def pixel_loss(
@@ -364,6 +433,8 @@ def pixel_loss(
     fft_weight=0.0,
     lpips_fn=None,
     lpips_weight=0.0,
+    dists_fn=None,
+    dists_weight=0.0,
 ):
     p = pred.float()[:, :, 12:-12, 12:-12]
     t = target[:, :, 12:-12, 12:-12]
@@ -383,6 +454,8 @@ def pixel_loss(
         objective = objective + fft_weight * fft_magnitude_loss(p, t)
     if lpips_fn is not None and lpips_weight > 0:
         objective = objective + lpips_weight * lpips_fn(p.clamp(0.0, 1.0), t)
+    if dists_fn is not None and dists_weight > 0:
+        objective = objective + dists_weight * dists_fn(p.clamp(0.0, 1.0), t)
     if teacher is not None:
         imitation = (pred.float().clamp(0, 1) - teacher.float())[:, :, 12:-12, 12:-12]
         objective = objective + imitation_weight * imitation.abs().mean()
@@ -393,15 +466,19 @@ def selection_score(metrics: dict, recipe: np.ndarray, mode: str) -> float:
     psnr = float(np.dot(metrics["psnr"], recipe))
     if mode == "psnr":
         return psnr
-    # Perceptual composite score: rewards higher PSNR & SSIM and sharply lower LPIPS & Edge-MAE
     lpips = float(np.dot(metrics["lpips"], recipe))
     ssim = float(np.dot(metrics["ssim"], recipe))
     edge = float(np.dot(metrics["edge_mae"], recipe))
+    dists = float(np.dot(metrics.get("dists", [0.0] * len(recipe)), recipe))
+    if dists > 0.0:
+        return psnr + 80.0 * ssim - 45.0 * lpips - 55.0 * dists - 80.0 * edge
     return psnr + 80.0 * ssim - 60.0 * lpips - 80.0 * edge
 
 
 def train(args):
     torch.manual_seed(args.seed)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
     torch.set_num_threads(2)
     torch.backends.cudnn.benchmark = True
     cuda = torch.device("cuda")
@@ -416,7 +493,7 @@ def train(args):
     if args.initialize:
         with np.load(args.initialize) as data:
             config = ArtCNNCConfig(**json.loads(data["config"].item()))
-    model = Model(config, grouped=args.grouped, use_ecb=args.ecb)
+    model = Model(config, grouped=args.grouped, **({"use_ecb": True} if args.ecb else {}))
     if args.upstream:
         model.load_onnx(args.upstream)
     if args.initialize:
@@ -438,11 +515,20 @@ def train(args):
         elif args.lpips_weight > 0:
             raise RuntimeError("Requested --lpips-weight > 0 but AlexNet/LPIPS weights were not found")
 
+    dists_fn = None
+    if args.dists_weight > 0 or args.select_metric == "perceptual":
+        found_d = find_dists_weights()
+        if found_d is not None:
+            dists_fn = DISTS(*found_d).to(cuda)
+        elif args.dists_weight > 0:
+            raise RuntimeError("Requested --dists-weight > 0 but VGG16/DISTS weights were not found")
+
     ema = copy.deepcopy(model).eval().requires_grad_(False)
     paired = Pairs(args.train)
     patches = Patches(paired, args.patch, args.steps, args.batch, args.seed)
     batches = DataLoader(patches, batch_size=args.batch, num_workers=args.workers, pin_memory=True, drop_last=True)
-    val = validation_samples(args.dev)
+    val, val_has_hevc = validation_samples(args.dev)
+    use_hevc = paired.has_hevc and not args.no_hevc
     optim = torch.optim.AdamW(model.parameters(), lr=args.lr, fused=True, weight_decay=0)
     scaler = torch.amp.GradScaler("cuda", init_scale=256)
     disc = None
@@ -455,26 +541,30 @@ def train(args):
         disc_optim = torch.optim.AdamW(disc.parameters(), lr=args.d_lr, betas=(0.5, 0.999), fused=True, weight_decay=0)
         disc_scaler = torch.amp.GradScaler("cuda", init_scale=256)
     rng = np.random.default_rng(args.seed)
-    recipe = np.array(RECIPES[args.recipe])
+    train_recipe = np.array(RECIPES_4[args.recipe] if use_hevc else RECIPES[args.recipe])
+    val_recipe = np.array(RECIPES_4[args.recipe] if val_has_hevc else RECIPES[args.recipe])
     args.output.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
-    metrics = validate(ema, val, cuda, lpips_fn=lpips_fn)
-    best = selection_score(metrics, recipe, args.select_metric)
+    metrics = validate(ema, val, cuda, lpips_fn=lpips_fn, dists_fn=dists_fn, has_hevc=val_has_hevc)
+    best = selection_score(metrics, val_recipe, args.select_metric)
     print(
         f"Initial PSNR {[round(x, 3) for x in metrics['psnr']]} "
         f"LPIPS {[round(x, 4) for x in metrics['lpips']]} "
+        f"DISTS {[round(x, 4) for x in metrics['dists']]} "
         f"Edge {[round(x, 4) for x in metrics['edge_mae']]} score={best:.3f}",
         flush=True,
     )
     if args.upstream or args.initialize:
         ema.export(args.output, "best", tuple(args.workgroup))
     history = [{"step": 0, **metrics, "score": best}]
-    for step, (hr, compressed) in enumerate(batches, start=1):
-        hr, compressed = tensors(hr, compressed, cuda)
-        mode = int(rng.choice(3, p=recipe))
+    shimmer_shifts = ((1, 0), (0, 1), (1, 1))
+    for step, (hr, compressed, hevc_batch) in enumerate(batches, start=1):
+        hr, compressed, hevc_t = tensors(hr, compressed, cuda, hevc_batch)
+        mode = int(rng.choice(len(train_recipe), p=train_recipe))
         sigma_step = float(rng.uniform(0.55, 1.1))
         lr = degradation(
-            hr, compressed, mode, sigma_step, rng=rng, extended=args.extended_degradation
+            hr, compressed, mode, sigma_step, rng=rng, extended=args.extended_degradation,
+            hevc=hevc_t if use_hevc else None,
         ).to(memory_format=torch.channels_last)
         rate = args.lr * (0.12 + 0.88 * (1 + math.cos(math.pi * step / args.steps)) / 2)
         optim.param_groups[0]["lr"] = rate
@@ -493,13 +583,21 @@ def train(args):
             fft_weight=args.fft_weight,
             lpips_fn=lpips_fn,
             lpips_weight=args.lpips_weight,
+            dists_fn=dists_fn,
+            dists_weight=args.dists_weight,
         )
-        if args.shimmer_weight > 0 and mode in (0, 1):
+        if args.shimmer_weight > 0 and mode in (0, 1, 2):
+            shift = shimmer_shifts[step % len(shimmer_shifts)]
             with torch.autocast("cuda", dtype=torch.float16):
-                def _down(h_img):
-                    f_img = gaussian(h_img, sigma_step) if mode == 1 else h_img
-                    return quantize(F.avg_pool2d(f_img, 2))
-                value = value + args.shimmer_weight * subpixel_shimmer_loss(model, hr, pred, _down)
+                if mode == 2:
+                    # Bicubic half-pixel shift consistency for codec/resampling stability
+                    def _down(h_img):
+                        return quantize(F.interpolate(h_img, scale_factor=0.5, mode="bicubic", align_corners=False, antialias=True).clamp(0, 1))
+                else:
+                    def _down(h_img):
+                        f_img = gaussian(h_img, sigma_step) if mode == 1 else h_img
+                        return quantize(F.avg_pool2d(f_img, 2))
+                value = value + args.shimmer_weight * subpixel_shimmer_loss(model, hr, pred, _down, shift=shift)
         if disc is not None:
             disc.requires_grad_(False)
             p_crop = pred.float().clamp(0.0, 1.0)[:, :, 12:-12, 12:-12]
@@ -537,8 +635,8 @@ def train(args):
         with torch.no_grad():
             torch._foreach_lerp_(tuple(ema.parameters()), tuple(model.parameters()), max(0.01, 2 / (step + 2)))
         if step % args.evaluate_every == 0 or step == args.steps:
-            metrics = validate(ema, val, cuda, lpips_fn=lpips_fn)
-            scalar = selection_score(metrics, recipe, args.select_metric)
+            metrics = validate(ema, val, cuda, lpips_fn=lpips_fn, dists_fn=dists_fn, has_hevc=val_has_hevc)
+            scalar = selection_score(metrics, val_recipe, args.select_metric)
             history.append({"step": step, **metrics, "score": scalar, "loss": float(value.detach())})
             (args.output / "training.json").write_text(json.dumps(history, indent=2) + "\n")
             if scalar > best or not (args.output / "best.npz").exists():
@@ -548,6 +646,7 @@ def train(args):
                 f"Step {step}/{args.steps} {time.monotonic()-start:.1f}s "
                 f"PSNR {[round(x, 3) for x in metrics['psnr']]} "
                 f"LPIPS {[round(x, 4) for x in metrics['lpips']]} "
+                f"DISTS {[round(x, 4) for x in metrics['dists']]} "
                 f"Edge {[round(x, 4) for x in metrics['edge_mae']]} score={scalar:.3f}",
                 flush=True,
             )
@@ -565,7 +664,7 @@ def main():
     parser.add_argument("--filters", type=int, default=16)
     parser.add_argument("--layers", type=int, default=4)
     parser.add_argument("--grouped", action="store_true")
-    parser.add_argument("--ecb", action="store_true", help="Train with lossless 5-branch FoldableECB blocks")
+    parser.add_argument("--ecb", action="store_true", help="Train with lossless 5-branch FoldableECB/FoldableGroupedECB blocks")
     parser.add_argument("--recipe", choices=sorted(RECIPES), default="balanced")
     parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument("--batch", type=int, default=32)
@@ -577,6 +676,7 @@ def main():
     parser.add_argument("--sobel-weight", type=float, default=0.0)
     parser.add_argument("--fft-weight", type=float, default=0.0)
     parser.add_argument("--lpips-weight", type=float, default=0.0)
+    parser.add_argument("--dists-weight", type=float, default=0.0)
     parser.add_argument("--gan", choices=["none", "patchgan", "unet"], default="none")
     parser.add_argument("--gan-loss", choices=["hinge", "ragan"], default="hinge")
     parser.add_argument("--gan-weight", type=float, default=0.0)
@@ -585,6 +685,7 @@ def main():
     parser.add_argument("--shimmer-weight", type=float, default=0.0)
     parser.add_argument("--teacher-pt", type=Path)
     parser.add_argument("--extended-degradation", action="store_true")
+    parser.add_argument("--no-hevc", action="store_true", help="Ignore hevc.npy even if present in train directory")
     parser.add_argument("--select-metric", choices=["psnr", "perceptual"], default="psnr")
     parser.add_argument("--evaluate-every", type=int, default=500)
     parser.add_argument("--workgroup", type=int, nargs=2, default=[8, 8])

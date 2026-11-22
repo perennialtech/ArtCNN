@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 perennialtech contributors
 # SPDX-License-Identifier: MIT
 
-"""Prepare luma and aligned H.264 inputs for real-frame ArtCNN training."""
+"""Prepare luma and aligned H.264 / Bicubic-HEVC inputs for real-frame ArtCNN training."""
 from __future__ import annotations
 
 import argparse
@@ -56,7 +56,36 @@ def codec_luma(hr: np.ndarray, qp: int, temporary: Path) -> np.ndarray:
     return buf.reshape(n, -1)[:, :width * height].reshape(n, height, width).copy()
 
 
-def prepare(manifests: list[Path], output: Path, limit: int = 0) -> None:
+def hevc_bicubic_luma(hr: np.ndarray, crf: int, temporary: Path) -> np.ndarray:
+    """Bicubic-downscale HR luma and encode with real libx265 (inter-frame GOP, realistic AQ)."""
+    n, h, w = hr.shape
+    width, height = w // 2, h // 2
+    codes = np.rint(16 + hr.astype(np.float32) * (219 / 255)).astype("u1")
+    neutral_hr_chroma = bytes([128]) * (w * h // 2)
+    source, video = temporary / "input_hr.yuv", temporary / "encoded.hevc"
+    with source.open("wb") as stream:
+        for plane in codes:
+            stream.write(plane.tobytes())
+            stream.write(neutral_hr_chroma)
+    base = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-xerror", "-y"]
+    subprocess.run([
+        *base, "-f", "rawvideo", "-pixel_format", "yuv420p", "-video_size", f"{w}x{h}",
+        "-framerate", "24", "-i", str(source), "-frames:v", str(n),
+        "-vf", f"scale={width}:{height}:flags=bicubic",
+        "-c:v", "libx265", "-preset", "fast", "-g", "24", "-crf", str(crf),
+        "-x265-params", "log-level=error:aq-mode=2", "-threads", "4", "-f", "hevc", str(video),
+    ], check=True)
+    decode = subprocess.run([
+        *base, "-threads", "4", "-i", str(video), "-frames:v", str(n),
+        "-pix_fmt", "yuv420p", "-f", "rawvideo", "pipe:1",
+    ], check=True, stdout=subprocess.PIPE)
+    buf = np.frombuffer(decode.stdout, dtype="u1")
+    if buf.size != n * width * height * 3 // 2:
+        raise RuntimeError(f"Unexpected HEVC decoder output size for {width}x{height}")
+    return buf.reshape(n, -1)[:, :width * height].reshape(n, height, width).copy()
+
+
+def prepare(manifests: list[Path], output: Path, limit: int = 0, with_hevc: bool = True) -> None:
     inputs = []
     for manifest in manifests:
         records = json.loads(manifest.read_text())
@@ -73,7 +102,6 @@ def prepare(manifests: list[Path], output: Path, limit: int = 0) -> None:
     batches = []
     with tempfile.TemporaryDirectory(dir=output) as temporary:
         for group_id, ((height, width), group) in enumerate(sorted(groups.items())):
-            # Keep working memory small even with many inputs of the same dimensions.
             for first in range(0, len(group), 64):
                 chunk = group[first:first + 64]
                 hr = np.stack([source_luma(path, row) for path, row in chunk])
@@ -81,18 +109,44 @@ def prepare(manifests: list[Path], output: Path, limit: int = 0) -> None:
                 np.save(output / f"{stem}-hr.npy", hr)
                 for qp in (24, 32):
                     np.save(output / f"{stem}-qp{qp}.npy", codec_luma(hr, qp, Path(temporary)))
+                if with_hevc:
+                    np.save(output / f"{stem}-hevc.npy", hevc_bicubic_luma(hr, 28, Path(temporary)))
                 batches.append({"stem": stem, "size": [width, height], "samples": [row for _, row in chunk]})
                 print(f"Prepared {sum(len(b['samples']) for b in batches)}/{len(inputs)} frames", flush=True)
     (output / "index.json").write_text(json.dumps(batches, indent=2) + "\n")
 
 
+def add_hevc(directory: Path, crf: int = 28) -> None:
+    """Append real bicubic + libx265 HEVC pairs to an existing prepared pairs directory."""
+    index = json.loads((directory / "index.json").read_text())
+    total = sum(len(b["samples"]) for b in index)
+    done = 0
+    with tempfile.TemporaryDirectory(dir=directory) as temporary:
+        for group in index:
+            stem = group["stem"]
+            out_path = directory / f"{stem}-hevc.npy"
+            if not out_path.exists():
+                hr = np.load(directory / f"{stem}-hr.npy")
+                np.save(out_path, hevc_bicubic_luma(hr, crf, Path(temporary)))
+            done += len(group["samples"])
+            print(f"HEVC {done}/{total} frames ({stem})", flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    parser.add_argument("manifests", nargs="+", type=Path)
+    parser.add_argument("manifests", nargs="*", type=Path)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--add-hevc", action="store_true", help="Add bicubic-HEVC arrays to existing pairs dir")
+    parser.add_argument("--hevc-crf", type=int, default=28)
+    parser.add_argument("--no-hevc", action="store_true")
     args = parser.parse_args()
-    prepare(args.manifests, args.output, args.limit)
+    if args.add_hevc:
+        add_hevc(args.output, crf=args.hevc_crf)
+    else:
+        if not args.manifests:
+            parser.error("manifests are required unless --add-hevc is set")
+        prepare(args.manifests, args.output, args.limit, with_hevc=not args.no_hevc)
 
 
 if __name__ == "__main__":

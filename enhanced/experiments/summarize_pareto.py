@@ -28,7 +28,7 @@ LABELS = {
     "f16-fast": "F16 fused FMA", "f16-exact": "F16 exact",
     "f16-restore": "Restore 16", "f16-clean": "Clean 16", "f16-balanced": "Balanced 16",
     "f32-fast": "F32 fused FMA", "f32-exact": "F32 exact",
-    "f32-restore": "Restore 32", "f32-clean": "Clean 32",
+    "f32-restore": "Restore 32", "f32-clean": "Clean 32", "c6f16-restore": "Restore C6F16",
     "f16-dn-fast": "F16 DN fused FMA", "f16-ds-fast": "F16 DS fused FMA",
     "f32-dn-fast": "F32 DN fused FMA", "f32-ds-fast": "F32 DS fused FMA",
     "f16-ds-exact": "F16 DS exact", "f32-ds-exact": "F32 DS exact",
@@ -106,10 +106,10 @@ def make_plot(stats, subset, count, path):
     layouts = list(REGIMES.items())
     fig, axes = plt.subplots(2, 2, figsize=(10.8, 7.0))
     highlights = {
-        "area": {"f8-fast", "g16-fast", "f16-clean", "f32-fast"},
-        "blur-area": {"f8-fast", "f12-fast", "g16-fast", "f16-restore", "f32-restore"},
-        "h264-qp32": {"f8-fast", "g16-fast", "f16-restore", "f32-restore"},
-        "bicubic-hevc": {"f8-fast", "g16-fast", "f16-ds-fast", "f32-ds-fast"},
+        "area": {"f8-fast", "g16-fast", "f16-clean", "f32-clean", "f32-fast"},
+        "blur-area": {"f8-fast", "f12-fast", "g16-fast", "f16-restore", "c6f16-restore", "f32-restore"},
+        "h264-qp32": {"f8-fast", "g16-fast", "f16-restore", "c6f16-restore", "f32-restore"},
+        "bicubic-hevc": {"f8-fast", "g16-fast", "f16-restore", "c6f16-restore", "f32-restore", "f32-ds-fast"},
     }
     for ax, (regime, title) in zip(axes.ravel(), layouts):
         for key, row in stats.items():

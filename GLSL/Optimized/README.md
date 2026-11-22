@@ -9,6 +9,8 @@ These shaders double luma resolution in mpv with `vo=gpu-next`. Choose one ArtCN
 | [C4F16 Clean](ArtCNN_C4F16_Clean.glsl) | Preserve detail in clean sources |
 | [C4F16 Balanced](ArtCNN_C4F16_Balanced.glsl) | A mix of clean, blurred, and compressed sources |
 | [C4F16 Restore](ArtCNN_C4F16_Restore.glsl) | Restore blurred or compressed sources |
+| [C6F16 Restore](ArtCNN_C6F16_Restore.glsl) | Deeper 6-layer 16-channel restoration model (~260 FPS, larger receptive field) |
+| [C4F32 Clean](ArtCNN_C4F32_Clean.glsl) | Wider 32-channel clean model (~118 FPS, lowest clean LPIPS/DISTS among GPU shaders) |
 | [C4F32 Restore](ArtCNN_C4F32_Restore.glsl) | Wider restoration model |
 | [C4F16 Grouped](ArtCNN_C4F16_Grouped.glsl) · [C4F32 Grouped](ArtCNN_C4F32_Grouped.glsl) | Grouped convolutions for lower playback cost at each width |
 
