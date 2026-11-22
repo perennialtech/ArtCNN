@@ -1,0 +1,103 @@
+{
+  "format": "artcnn-webgpu",
+  "version": 1,
+  "name": "ArtCNN_C4F32_Restore",
+  "architecture": "C4F32",
+  "scale": 2,
+  "color_space": "luma_bt709",
+  "dtype": "float32",
+  "filters": 32,
+  "internal_layers": 4,
+  "activation": "relu",
+  "leaky_slope": 0.1,
+  "input_skip": false,
+  "weights_file": "ArtCNN_C4F32_Restore.bin",
+  "weights_bytes": 190864,
+  "weights_sha256": "e3622c24393e4f7d04357560ce96a412782892ea2b67881b6f33f2fc4384ecca",
+  "layers": [
+    {
+      "kind": "conv_in1",
+      "c_in": 1,
+      "c_out": 32,
+      "bias_floats": 32,
+      "weight_floats": 288,
+      "name": "conv2d",
+      "role": "entry",
+      "activation": "none",
+      "byte_offset": 0,
+      "byte_length": 1280
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 32,
+      "c_out": 32,
+      "bias_floats": 32,
+      "weight_floats": 9216,
+      "name": "conv2d_1",
+      "role": "internal",
+      "activation": "relu",
+      "byte_offset": 1280,
+      "byte_length": 36992
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 32,
+      "c_out": 32,
+      "bias_floats": 32,
+      "weight_floats": 9216,
+      "name": "conv2d_2",
+      "role": "internal",
+      "activation": "relu",
+      "byte_offset": 38272,
+      "byte_length": 36992
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 32,
+      "c_out": 32,
+      "bias_floats": 32,
+      "weight_floats": 9216,
+      "name": "conv2d_3",
+      "role": "internal",
+      "activation": "relu",
+      "byte_offset": 75264,
+      "byte_length": 36992
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 32,
+      "c_out": 32,
+      "bias_floats": 32,
+      "weight_floats": 9216,
+      "name": "conv2d_4",
+      "role": "internal",
+      "activation": "relu",
+      "byte_offset": 112256,
+      "byte_length": 36992
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 32,
+      "c_out": 32,
+      "bias_floats": 32,
+      "weight_floats": 9216,
+      "name": "conv2d_5",
+      "role": "mix_global",
+      "activation": "none",
+      "byte_offset": 149248,
+      "byte_length": 36992
+    },
+    {
+      "kind": "conv_dense",
+      "c_in": 32,
+      "c_out": 4,
+      "bias_floats": 4,
+      "weight_floats": 1152,
+      "name": "conv2d_6",
+      "role": "features_d2s",
+      "activation": "none",
+      "byte_offset": 186240,
+      "byte_length": 4624
+    }
+  ]
+}

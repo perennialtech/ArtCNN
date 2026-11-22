@@ -1,0 +1,78 @@
+{
+  "format": "artcnn-webgpu-catalog",
+  "version": 1,
+  "models": [
+    {
+      "id": "ArtCNN_C3F8_Fast",
+      "label": "C3F8 Fast",
+      "description": "Lowest GPU cost; ideal for real-time video on integrated GPUs",
+      "architecture": "C3F8",
+      "manifest": "ArtCNN_C3F8_Fast.json",
+      "weights": "ArtCNN_C3F8_Fast.bin",
+      "weights_bytes": 10832,
+      "weights_sha256": "260eea62ecc7e57fdc1ba52729e098e79b148d2f39f44abcd744bd2150ed3d8c",
+      "input_skip": true,
+      "grouped": false
+    },
+    {
+      "id": "ArtCNN_C4F16_Clean",
+      "label": "C4F16 Clean",
+      "description": "Preserves fine detail on clean animation sources",
+      "architecture": "C4F16",
+      "manifest": "ArtCNN_C4F16_Clean.json",
+      "weights": "ArtCNN_C4F16_Clean.bin",
+      "weights_bytes": 49360,
+      "weights_sha256": "e76e0715cebb44187f67db768ef2f04c801daeca4e03e12f472362c62cf75f0e",
+      "input_skip": false,
+      "grouped": false
+    },
+    {
+      "id": "ArtCNN_C4F16_Balanced",
+      "label": "C4F16 Balanced",
+      "description": "Balanced preset for mixed clean and compressed sources",
+      "architecture": "C4F16",
+      "manifest": "ArtCNN_C4F16_Balanced.json",
+      "weights": "ArtCNN_C4F16_Balanced.bin",
+      "weights_bytes": 49360,
+      "weights_sha256": "b70f10aeae7821fa9278ba892185d7b77e72e629da40fe43b6b784f61a693a7f",
+      "input_skip": false,
+      "grouped": false
+    },
+    {
+      "id": "ArtCNN_C4F16_Restore",
+      "label": "C4F16 Restore",
+      "description": "Restores blurred or compressed animation sources",
+      "architecture": "C4F16",
+      "manifest": "ArtCNN_C4F16_Restore.json",
+      "weights": "ArtCNN_C4F16_Restore.bin",
+      "weights_bytes": 49360,
+      "weights_sha256": "79b7d871245bf64887d8bd4e92fb55938d819dc8bd83cf3ef6a253db834b548a",
+      "input_skip": false,
+      "grouped": false
+    },
+    {
+      "id": "ArtCNN_C4F16_Grouped",
+      "label": "C4F16 Grouped",
+      "description": "Grouped 16-channel model for lower compute cost",
+      "architecture": "C4F16",
+      "manifest": "ArtCNN_C4F16_Grouped.json",
+      "weights": "ArtCNN_C4F16_Grouped.bin",
+      "weights_bytes": 19920,
+      "weights_sha256": "0573ad4255c99fd1a634e573f88332184bc5bb8d87aaf5043f8ccb0feddb05b7",
+      "input_skip": false,
+      "grouped": true
+    },
+    {
+      "id": "ArtCNN_C4F32_Restore",
+      "label": "C4F32 Restore",
+      "description": "Wider 32-channel restoration model for high-end GPUs",
+      "architecture": "C4F32",
+      "manifest": "ArtCNN_C4F32_Restore.json",
+      "weights": "ArtCNN_C4F32_Restore.bin",
+      "weights_bytes": 190864,
+      "weights_sha256": "e3622c24393e4f7d04357560ce96a412782892ea2b67881b6f33f2fc4384ecca",
+      "input_skip": false,
+      "grouped": false
+    }
+  ]
+}

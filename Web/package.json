@@ -1,0 +1,20 @@
+{
+  "name": "artcnn-web",
+  "version": "0.1.0",
+  "description": "Zero-dependency WebGPU and CPU browser runtime for ArtCNN anime upscaling",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./webgpu": "./src/webgpu.js",
+    "./cpu": "./src/cpu.js",
+    "./onnx": "./src/onnx.js",
+    "./color": "./src/color.js"
+  },
+  "scripts": {
+    "test": "node --test tests/*.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
