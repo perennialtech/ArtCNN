@@ -1,5 +1,7 @@
 # ArtCNN
 
+This fork's C-series training experiments, benchmarks, and shader exports are documented in [ArtCNN Enhanced](./enhanced/README.md).
+
 ## Overview
 ArtCNN is a collection of simple SISR models aimed at anime content.
 

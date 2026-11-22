@@ -17,19 +17,22 @@ Standalone, verified engineering implementation of zero-cost and low-cost percei
 4. **Drop-in GPU training (`train_pytorch.py`)**
    - Ready to train full `C4F32` / `C4F16` models on real anime datasets (`Anime_Train_HR` / `Digital_Art_Train_HR`) and export fused `.glsl` shaders directly.
 
-## Unpacking the git bundle
+## Running tests and local ablations
+
+From the repository root, set up an environment for the CPU tools and run the test suite.
 
 ```bash
-git clone artcnn-enhanced.bundle artcnn-enhanced
-cd artcnn-enhanced
-git log --oneline
+cd enhanced
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install numpy scipy 'opencv-python-headless<5'
+PYTHONPATH=. python tests/test_all.py
 ```
 
-## Running tests & local ablations (no GPU required)
+To rerun the CPU ablations and regenerate the results and shaders, run the following from `enhanced/`.
 
 ```bash
-PYTHONPATH=. python3 tests/test_all.py
-PYTHONPATH=. python3 run_ablations.py
+PYTHONPATH=. python run_ablations.py
 ```
 
 See `RESULTS.md` for measured ablation numbers and `shaders/` for exported baseline vs. fused GLSL shaders.
