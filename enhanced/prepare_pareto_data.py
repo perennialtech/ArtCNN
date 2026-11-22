@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Prepare luma and aligned H.264 inputs for real-frame ArtCNN training."""
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Rewrite mpv shader workgroups while preserving each thread's output footprint."""
 from __future__ import annotations
 
@@ -31,8 +34,8 @@ def main() -> None:
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--height", type=int, required=True)
     args = parser.parse_args()
-    result = retile_shader(args.source.read_text(), args.width, args.height)
-    args.output.write_text(result)
+    result = retile_shader(args.source.read_text(encoding="utf-8"), args.width, args.height)
+    args.output.write_text(result, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

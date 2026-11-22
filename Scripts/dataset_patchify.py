@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2024-2025 João Chrisóstomo
+# SPDX-License-Identifier: MIT
+
 import cv2
 import numpy as np
 from pathlib import Path

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Try explicit vector FMA accumulation in a C-series shader."""
 from __future__ import annotations
 
@@ -49,7 +52,8 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--group-sums", action="store_true")
     args = parser.parse_args()
-    args.output.write_text(explicit_fma(args.source.read_text(), args.group_sums))
+    shader = args.source.read_text(encoding="utf-8")
+    args.output.write_text(explicit_fma(shader, args.group_sums), encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

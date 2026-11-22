@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Fetch pinned, deterministic ATD-12K training and held-out frame subsets."""
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Regenerate a release shader from the portable training checkpoint."""
 import argparse
 import json
@@ -30,7 +33,8 @@ def main():
     parser.add_argument("--workgroup", nargs=2, type=int, default=(8, 8))
     parser.add_argument("--fma", action="store_true")
     args = parser.parse_args()
-    args.output.write_text(export_checkpoint(args.checkpoint, tuple(args.workgroup), args.fma))
+    shader = export_checkpoint(args.checkpoint, tuple(args.workgroup), args.fma)
+    args.output.write_text(shader, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

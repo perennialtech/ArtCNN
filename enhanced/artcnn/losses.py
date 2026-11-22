@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Perceptual, edge-agreement, frequency-domain, distillation, and temporal-shift
 consistency losses with exact analytic gradients in NumPy.
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Fuse upstream C-series pixel shuffle and optionally use explicit FMA."""
 from __future__ import annotations
 
@@ -45,10 +48,19 @@ def main():
     parser.add_argument("--workgroup", type=int, nargs=2, default=(8, 8))
     parser.add_argument("--fma", action="store_true")
     args = parser.parse_args()
-    shader = retile_shader(fuse_upstream_final(args.source.read_text()), *args.workgroup)
+    shader = retile_shader(fuse_upstream_final(args.source.read_text(encoding="utf-8")), *args.workgroup)
     if args.fma:
         shader = explicit_fma(shader)
-    args.output.write_text(shader)
+    title = "// MIT License\n"
+    if shader.startswith(title):
+        identifier = "// SPDX-License-Identifier: MIT\n"
+        if not shader.startswith(title + identifier):
+            shader = title + identifier + shader[len(title):]
+        notice = "// Copyright (c) 2026 perennialtech contributors (shader optimizations)"
+        grant = "\n\n// Permission is hereby granted"
+        if notice not in shader:
+            shader = shader.replace(grant, "\n" + notice + grant, 1)
+    args.output.write_text(shader, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025-2026 João Chrisóstomo
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path

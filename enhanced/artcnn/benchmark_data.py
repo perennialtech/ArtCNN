@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Procedural anime-like HR scene generator and balanced patch sampler.
 
 Covers the 6 visual regimes critical for anime super-resolution evaluation:

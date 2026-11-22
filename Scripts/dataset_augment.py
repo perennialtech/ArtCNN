@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2024-2026 João Chrisóstomo
+# SPDX-License-Identifier: MIT
+
 import cv2
 import numpy as np
 import glob

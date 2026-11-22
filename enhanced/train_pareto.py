@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Fine-tune or distill ArtCNN models on the pinned real-frame training set."""
 from __future__ import annotations
 
@@ -125,7 +128,7 @@ class Model(nn.Module):
                 dst.b = src.bias.detach().cpu().numpy().copy()
         np.savez(directory / f"{stem}.npz", **portable.state_dict(), **extra, config=json.dumps(asdict(self.config)))
         shader = export_artcnn_glsl(portable, fuse_depth_to_space=True, grouped_kernels=kernels)
-        (directory / f"{stem}.glsl").write_text(retile_shader(shader, *workgroup))
+        (directory / f"{stem}.glsl").write_text(retile_shader(shader, *workgroup), encoding="utf-8", newline="\n")
 
 
 class ResidualTeacher(nn.Module):

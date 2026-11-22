@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 João Chrisóstomo
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 import os
 
 import onnxruntime as ort

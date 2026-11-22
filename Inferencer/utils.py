@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 João Chrisóstomo
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 import numpy as np
 import cv2
 

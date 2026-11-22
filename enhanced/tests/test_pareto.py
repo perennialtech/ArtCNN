@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Check the published shader catalog, fine-tuning, and grouped shader export."""
 import hashlib
 import json
@@ -55,7 +58,9 @@ def test_grouped_export() -> None:
             dense.load_state_dict(weights)
         reloaded = Model(config, grouped=True).eval()
         reloaded.load_npz(path / "model.npz")
-        shader = (path / "model.glsl").read_text()
+        shader = (path / "model.glsl").read_text(encoding="utf-8")
+        assert "SPDX-License-Identifier: MIT" in shader
+        assert "Permission is hereby granted" in shader
         assert "C3F12" in shader
         assert shader.count("V4 group0 =") == 4
         assert len(COMPUTE.findall(shader)) == 6
