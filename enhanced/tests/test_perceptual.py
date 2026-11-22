@@ -67,8 +67,33 @@ def test_foldable_ecb_lossless_init_and_fold() -> None:
     assert diff_fold < 1e-5, f"Fold mismatch: {diff_fold}"
 
 
+
+
+def test_discriminators_and_gan_losses() -> None:
+    from artcnn.discriminators import (
+        SpectralNormPatchGAN,
+        SpectralNormUNetDiscriminator,
+        feature_matching_loss,
+        gan_d_loss,
+        gan_g_loss,
+    )
+    torch.manual_seed(3)
+    real = torch.rand(2, 1, 64, 64)
+    fake = torch.rand(2, 1, 64, 64, requires_grad=True)
+    for disc in (SpectralNormPatchGAN(base_ch=16), SpectralNormUNetDiscriminator(base_ch=16)):
+        r_log, r_ft = disc(real)
+        f_log, f_ft = disc(fake)
+        for kind in ("hinge", "ragan"):
+            dl = gan_d_loss(r_log, f_log.detach(), kind)
+            gl = gan_g_loss(r_log.detach(), f_log, kind)
+            assert torch.isfinite(dl) and torch.isfinite(gl)
+        fm = feature_matching_loss(r_ft, f_ft)
+        assert torch.isfinite(fm) and fm.item() > 0
+
+
 if __name__ == "__main__":
     test_perceptual_losses_zero_on_identity()
     test_perceptual_losses_backward()
     test_foldable_ecb_lossless_init_and_fold()
+    test_discriminators_and_gan_losses()
     print("ALL PERCEPTUAL TESTS PASSED.")
