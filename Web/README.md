@@ -50,7 +50,7 @@ upscaler.destroy();
 
 ### Using existing `.onnx` models with `onnxruntime-web`
 
-ArtCNN's luma ONNX models in [`ONNX/`](../ONNX/) and [`ONNX/CPU/`](../ONNX/CPU/) expect a single BT.709 luma channel. `OnnxLumaUpscaler` handles the BT.709 RGB ↔ YCbCr conversion and 2× bilinear chroma upscaling for you:
+ArtCNN's luma ONNX models in [`ONNX/`](../ONNX/) and [`ONNX/CPU/`](../ONNX/CPU/) expect a single BT.709 luma channel. `OnnxLumaUpscaler` handles the BT.709 RGB ↔ YCbCr conversion and 2× Catmull-Rom anti-ringing chroma upscaling and triangular dithering for you:
 
 ```js
 import * as ort from "onnxruntime-web";

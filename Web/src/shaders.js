@@ -350,16 +350,63 @@ const TILE_AREA: u32 = ${TILE_AREA}u;
 
 var<workgroup> tile: array<${t.V4}, ${sharedElems}>;
 
-fn writeSubpixel(ox: u32, oy: u32, resY: f32, invOutSize: vec2<f32>) {
+fn ign(x: f32, y: f32) -> f32 {
+  return fract(52.9829189 * fract(0.06711056 * x + 0.00583715 * y));
+}
+
+fn loadChroma(sx: i32, sy: i32, maxX: i32, maxY: i32) -> vec2<f32> {
+  let rgb = textureLoad(srcTex, vec2<i32>(clamp(sx, 0, maxX), clamp(sy, 0, maxY)), 0).rgb;
+  let cb = clamp(dot(rgb, vec3<f32>(-0.114572, -0.385428, 0.5)) + 0.5, 0.0, 1.0) - 0.5;
+  let cr = clamp(dot(rgb, vec3<f32>(0.5, -0.454153, -0.045847)) + 0.5, 0.0, 1.0) - 0.5;
+  return vec2<f32>(cb, cr);
+}
+
+fn sampleChromaBicubicAR(ox: u32, oy: u32, maxX: i32, maxY: i32) -> vec2<f32> {
+  let sx = (f32(ox) + 0.5) * 0.5 - 0.5;
+  let sy = (f32(oy) + 0.5) * 0.5 - 0.5;
+  let x0 = i32(floor(sx));
+  let y0 = i32(floor(sy));
+  // Exact 1D Catmull-Rom weights at t = 0.25 and t = 0.75
+  let wx = select(
+    vec4<f32>(-0.0703125, 0.8671875, 0.2265625, -0.0234375),
+    vec4<f32>(-0.0234375, 0.2265625, 0.8671875, -0.0703125),
+    (ox & 1u) == 0u,
+  );
+  let wy = select(
+    vec4<f32>(-0.0703125, 0.8671875, 0.2265625, -0.0234375),
+    vec4<f32>(-0.0234375, 0.2265625, 0.8671875, -0.0703125),
+    (oy & 1u) == 0u,
+  );
+  var acc = vec2<f32>(0.0, 0.0);
+  var lo = vec2<f32>(1.0, 1.0);
+  var hi = vec2<f32>(-1.0, -1.0);
+  for (var j = 0; j < 4; j++) {
+    let ry = y0 + j - 1;
+    let c0 = loadChroma(x0 - 1, ry, maxX, maxY);
+    let c1 = loadChroma(x0, ry, maxX, maxY);
+    let c2 = loadChroma(x0 + 1, ry, maxX, maxY);
+    let c3 = loadChroma(x0 + 2, ry, maxX, maxY);
+    if (j == 1 || j == 2) {
+      lo = min(lo, min(c1, c2));
+      hi = max(hi, max(c1, c2));
+    }
+    acc += wy[j] * (wx.x * c0 + wx.y * c1 + wx.z * c2 + wx.w * c3);
+  }
+  return clamp(acc, lo, hi);
+}
+
+fn writeSubpixel(ox: u32, oy: u32, resY: f32, invOutSize: vec2<f32>, maxX: i32, maxY: i32) {
   let uv = (vec2<f32>(f32(ox), f32(oy)) + vec2<f32>(0.5, 0.5)) * invOutSize;
   let rgb = textureSampleLevel(srcTex, linSampler, uv, 0.0).rgb;
   let yBilin = clamp(dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
-  let cb = clamp(dot(rgb, vec3<f32>(-0.114572, -0.385428, 0.5)) + 0.5, 0.0, 1.0) - 0.5;
-  let cr = clamp(dot(rgb, vec3<f32>(0.5, -0.454153, -0.045847)) + 0.5, 0.0, 1.0) - 0.5;
+  let chroma = sampleChromaBicubicAR(ox, oy, maxX, maxY);
+  let cb = chroma.x;
+  let cr = chroma.y;
   let yOut = clamp(resY${skipExpr}, 0.0, 1.0);
-  let r = clamp(yOut + 1.5748 * cr, 0.0, 1.0);
-  let g = clamp(yOut - 0.1873 * cb - 0.4681 * cr, 0.0, 1.0);
-  let b = clamp(yOut + 1.8556 * cb, 0.0, 1.0);
+  let d = (ign(f32(ox), f32(oy)) + ign(f32(ox) + 17.0, f32(oy) + 31.0) - 1.0) * (0.5 / 255.0);
+  let r = clamp(yOut + 1.5748 * cr + d, 0.0, 1.0);
+  let g = clamp(yOut - 0.1873 * cb - 0.4681 * cr + d, 0.0, 1.0);
+  let b = clamp(yOut + 1.8556 * cb + d, 0.0, 1.0);
   textureStore(outTex, vec2<i32>(i32(ox), i32(oy)), vec4<f32>(r, g, b, 1.0));
 }
 
@@ -414,10 +461,12 @@ fn main(
   let ox = gid.x * 2u;
   let oy = gid.y * 2u;
   let invOutSize = vec2<f32>(1.0 / f32(dims.width * 2u), 1.0 / f32(dims.height * 2u));
-  writeSubpixel(ox, oy, outF32.x, invOutSize);
-  writeSubpixel(ox + 1u, oy, outF32.y, invOutSize);
-  writeSubpixel(ox, oy + 1u, outF32.z, invOutSize);
-  writeSubpixel(ox + 1u, oy + 1u, outF32.w, invOutSize);
+  let maxX = i32(dims.width) - 1;
+  let maxY = i32(dims.height) - 1;
+  writeSubpixel(ox, oy, outF32.x, invOutSize, maxX, maxY);
+  writeSubpixel(ox + 1u, oy, outF32.y, invOutSize, maxX, maxY);
+  writeSubpixel(ox, oy + 1u, outF32.z, invOutSize, maxX, maxY);
+  writeSubpixel(ox + 1u, oy + 1u, outF32.w, invOutSize, maxX, maxY);
 }
 `;
 }
