@@ -28,7 +28,7 @@ cd enhanced
 PYTHONPATH=. uv run --locked --group benchmarks python tests/test_all.py
 ```
 
-On x86-64 Linux or Windows, run `PYTHONPATH=. uv run --locked --group training python tests/test_pareto.py` from `enhanced/` to verify the shipped shader catalog and fine-tuning paths. The training group uses the CUDA 12.8 PyTorch wheels on Python 3.11–3.13. Running the trainer requires a compatible NVIDIA GPU and driver.
+On x86-64 Linux or Windows, run `PYTHONPATH=. uv run --locked --group training python tests/test_pareto.py` from `enhanced/` to verify the shipped shader catalog and fine-tuning paths. The training group uses PyTorch 2.11 with CUDA 12.8 on Python 3.12–3.14. Running the trainer requires a compatible NVIDIA GPU and driver.
 
 To rerun the CPU ablations and regenerate the results and shaders, run the following from `enhanced/`.
 

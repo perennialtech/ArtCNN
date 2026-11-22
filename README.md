@@ -28,7 +28,7 @@ See the [shader catalog](GLSL/Optimized/README.md) for alternatives, including t
 
 ## CPU image upscaling
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run from the repository root. uv uses the repository's [Python version](.python-version) and [locked dependencies](uv.lock). This example uses Restore for compressed or blurred inputs and writes PNGs to the working directory.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run from the repository root. The project requires Python 3.12 or newer. uv defaults to [Python 3.12](.python-version) and installs the [locked dependencies](uv.lock). This example uses Restore for compressed or blurred inputs and writes PNGs to the working directory.
 
 ```sh
 uv run --locked --group openvino python Inferencer/inferencer.py frames/ --model ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
