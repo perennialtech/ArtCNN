@@ -1,21 +1,23 @@
-# ArtCNN CPU models
+# CPU models
 
-These FP32 ONNX models accept luma and produce 2× luma output. They run with the CPU backends in the [inferencer](../../Inferencer/README.md#cpu-inference).
+These FP32 ONNX models accept luma and produce 2× luma output. Use the [inferencer](../../Inferencer/README.md) with ONNX Runtime or OpenVINO.
 
-| Model | Workload |
+| Model | Intended use |
 | --- | --- |
-| `ArtCNN_C3F8_Fast.onnx` | Lowest latency among the released models |
-| `ArtCNN_C4F16_Clean.onnx` | 16-channel model for clean sources |
-| `ArtCNN_C4F16_Restore.onnx` | 16-channel model for blurred or compressed sources |
-| `ArtCNN_C4F32_Restore.onnx` | 32-channel model for restoration |
-| `ArtCNN_R8F64_Rank16.onnx` | Faster R-series model with 16-channel projections |
-| `ArtCNN_R8F64_Rank32_Clean.onnx` | R-series model with 32-channel projections tuned for clean sources |
+| [C3F8 Fast](ArtCNN_C3F8_Fast.onnx) | Lowest measured latency among these models |
+| [C4F16 Clean](ArtCNN_C4F16_Clean.onnx) | Clean sources at C-series speed |
+| [C4F16 Restore](ArtCNN_C4F16_Restore.onnx) | Blurred or compressed sources at C-series speed |
+| [C4F32 Restore](ArtCNN_C4F32_Restore.onnx) | Wider model for restoration |
+| [R8F64 Rank16](ArtCNN_R8F64_Rank16.onnx) | Lower-cost R-series model with 16-channel projections |
+| [R8F64 Rank32 Clean](ArtCNN_R8F64_Rank32_Clean.onnx) | R-series model with 32-channel projections tuned for clean sources |
 
-The C-series weights are FP32 ONNX exports of the checkpoints from [the ArtCNN GPU exploration](https://github.com/perennialtech/ArtCNN/pull/1). The R-series models initialize pointwise projections and spatial convolutions from upstream R8F64 using SVD, then distill on separate ATD-12K training frames.
+Run from the repository root after installing the [CPU inference dependencies](../../Inferencer/README.md#cpu-inference) and the optional OpenVINO package.
 
-```shell
-python Inferencer/inferencer.py frames/ -m ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
+```sh
+python Inferencer/inferencer.py frames/ --model ONNX/CPU/ArtCNN_C4F16_Restore.onnx \
   --cpu-backend openvino --cpu-threads 4
 ```
 
-See the [CPU benchmark](../../Inferencer/benchmarks/README.md) for the pinned inputs and commands and the [measured results](../../Inferencer/benchmarks/results.md) for the speed and reconstruction trade-offs.
+The C-series models use FP32 ONNX exports of the [GPU training checkpoints](../../enhanced/pareto/README.md). The R-series models use SVD to initialize pointwise projections and spatial convolutions from upstream R8F64, then distill on separate ATD-12K training frames.
+
+See the [measured results](../../Inferencer/benchmarks/results.md) for speed, PSNR, and memory. The [benchmark guide](../../Inferencer/benchmarks/README.md) pins the inputs and commands. Downloaded weights can be checked against [SHA256SUMS](SHA256SUMS).

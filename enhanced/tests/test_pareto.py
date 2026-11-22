@@ -1,4 +1,6 @@
-"""Numerical checks for the fine-tuning and grouped shader export paths."""
+"""Check the published shader catalog, fine-tuning, and grouped shader export."""
+import hashlib
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -10,6 +12,22 @@ import torch
 from artcnn.models_np import ArtCNNC, ArtCNNCConfig
 from experiments.tune_workgroups import COMPUTE, retile_shader
 from train_pareto import Model, load_teacher
+
+
+def test_release_manifest() -> None:
+    root = Path(__file__).resolve().parents[2]
+    artifacts = root / "enhanced" / "pareto"
+    catalog = root / "GLSL" / "Optimized"
+    models = json.loads((artifacts / "models.json").read_text())["models"]
+    shaders = []
+    for name, model in models.items():
+        shader = (artifacts / model["file"]).resolve()
+        assert shader.parent == catalog, f"{name} points outside the shader catalog"
+        assert hashlib.sha256(shader.read_bytes()).hexdigest() == model["sha256"], name
+        if model["checkpoint"]:
+            assert (artifacts / model["checkpoint"]).is_file(), name
+        shaders.append(shader)
+    assert sorted(shaders) == sorted(catalog.glob("*.glsl"))
 
 
 def test_upstream_import(onnx_file: Path) -> None:
@@ -66,7 +84,8 @@ if __name__ == "__main__":
     parser.add_argument("--onnx", type=Path, default=Path("../ONNX/ArtCNN_C4F16.onnx"))
     parser.add_argument("--teacher-onnx", type=Path, default=Path("../ONNX/ArtCNN_R8F64.onnx"))
     args = parser.parse_args()
+    test_release_manifest()
     test_upstream_import(args.onnx)
     test_grouped_export()
     test_residual_teacher(args.teacher_onnx)
-    print("Upstream import, grouped checkpoint, equivalent NumPy convolution and workgroup checks passed.")
+    print("Release catalog, upstream import, grouped checkpoint, and workgroup checks passed.")
