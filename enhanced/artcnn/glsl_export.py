@@ -62,7 +62,7 @@ def _emit_conv_pass(
     layer_name: str,
     prev_name: str,
     layer: Conv2D3x3,
-    filters_label: int,
+    model_label: str,
     has_activation: bool,
     activation: str,
     leaky_slope: float,
@@ -71,6 +71,7 @@ def _emit_conv_pass(
     mix_name: str = "conv2d_5",
     fuse_d2s: bool = False,
     input_skip: bool = False,
+    grouped_kernel: Tuple[np.ndarray, np.ndarray] | None = None,
 ) -> str:
     c_in, c_out = layer.c_in, layer.c_out
     threads_w, threads_h = 12, 16
@@ -84,7 +85,7 @@ def _emit_conv_pass(
         act_tag += "-FusedD2S" + ("-InputSkip" if input_skip else "")
 
     lines = []
-    lines.append(f"//!DESC ArtCNN-Enhanced C4F{filters_label} ({layer_name}{act_tag})")
+    lines.append(f"//!DESC ArtCNN-Enhanced {model_label} ({layer_name}{act_tag})")
     if fuse_d2s:
         # Each thread computes 1 input pixel -> writes 2x2 output pixels directly
         lines.append(f"//!COMPUTE {threads_w * 2} {threads_h * 2} {threads_w} {threads_h}")
@@ -149,11 +150,27 @@ def _emit_conv_pass(
         b_slice = layer.b[p * 4 : (p + 1) * 4]
         lines.append(f"    V4 result{p} = V4({_fmt_floats(b_slice)});")
 
-    # Unrolled 3x3 mat-vec accumulate (layer.W shape is [Cout, Cin, 3, 3])
+    if grouped_kernel is not None:
+        spatial, mixing = grouped_kernel
+        if (c_in != c_out or c_in % 4 or prev_name == "LUMA"
+                or spatial.shape != (c_in, 4, 3, 3) or mixing.shape != (c_out, c_in)):
+            raise ValueError(f"Invalid grouped kernel for {layer_name}")
+
+    # Unrolled 3x3 mat-vec accumulate (layer.W shape is [Cout, Cin, 3, 3]).
     for z in range(tile_in_w * tile_in_h):
         for ky in range(3):
             for kx in range(3):
                 lines.append(f"    const {storage} inp_{z}_{kx}_{ky} = inp[{z}][local_xy.y + {ky}][local_xy.x + {kx}];")
+        if grouped_kernel is not None:
+            lines.append(f"    V4 group{z} = V4(0.0);")
+            for ky in range(3):
+                for kx in range(3):
+                    kernel = spatial[z * 4:(z + 1) * 4, :, ky, kx].T
+                    lines.append(f"    group{z} += M4({_fmt_floats(kernel)}) * inp_{z}_{kx}_{ky};")
+            for p in range(tile_w * tile_h):
+                kernel = mixing[p * 4:(p + 1) * 4, z * 4:(z + 1) * 4].T
+                lines.append(f"    result{p} += M4({_fmt_floats(kernel)}) * group{z};")
+            continue
         for p in range(tile_w * tile_h):
             for ky in range(3):
                 for kx in range(3):
@@ -201,10 +218,10 @@ def _emit_conv_pass(
     return "\n".join(lines)
 
 
-def _emit_separate_d2s_pass(prev_name: str, filters_label: int) -> str:
+def _emit_separate_d2s_pass(prev_name: str, model_label: str) -> str:
     return "\n".join([
-        f"//!DESC ArtCNN C4F{filters_label} (Depth-To-Space)",
-        "//!COMPUTE 24 32 12 16",
+        f"//!DESC ArtCNN {model_label} (Depth-To-Space)",
+        "//!COMPUTE 12 16 12 16",
         "//!HOOK LUMA",
         f"//!BIND {prev_name}",
         "//!WIDTH LUMA.w 2.0 *",
@@ -223,12 +240,14 @@ def _emit_separate_d2s_pass(prev_name: str, filters_label: int) -> str:
 def export_artcnn_glsl(
     model: ArtCNNC,
     fuse_depth_to_space: bool = True,
+    grouped_kernels: dict[str, Tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> str:
     """Export an ArtCNNC model to an mpv/libplacebo GLSL compute shader."""
     cfg = model.config
-    F = cfg.filters
+    model_label = f"C{cfg.internal_layers}F{cfg.filters}"
     parts = [LICENSE_HEADER]
     layers = model.layers()
+    grouped_kernels = grouped_kernels or {}
 
     # conv0 (LUMA -> conv2d)
     parts.append(
@@ -236,7 +255,7 @@ def export_artcnn_glsl(
             layer_name="conv2d",
             prev_name="LUMA",
             layer=layers[0][1],
-            filters_label=F,
+            model_label=model_label,
             has_activation=False,
             activation=cfg.activation,
             leaky_slope=cfg.leaky_slope,
@@ -252,10 +271,11 @@ def export_artcnn_glsl(
                 layer_name=name,
                 prev_name=prev_name,
                 layer=layer,
-                filters_label=F,
+                model_label=model_label,
                 has_activation=True,
                 activation=cfg.activation,
                 leaky_slope=cfg.leaky_slope,
+                grouped_kernel=grouped_kernels.get(name),
             )
         )
 
@@ -267,10 +287,11 @@ def export_artcnn_glsl(
             layer_name=mix_name,
             prev_name=layers[mix_idx - 1][0],
             layer=mix_layer,
-            filters_label=F,
+            model_label=model_label,
             has_activation=False,
             activation=cfg.activation,
             leaky_slope=cfg.leaky_slope,
+            grouped_kernel=grouped_kernels.get(mix_name),
         )
     )
 
@@ -282,7 +303,7 @@ def export_artcnn_glsl(
             layer_name=feat_name,
             prev_name="add_global",
             layer=feat_layer,
-            filters_label=F,
+            model_label=model_label,
             has_activation=False,
             activation=cfg.activation,
             leaky_slope=cfg.leaky_slope,
@@ -295,7 +316,7 @@ def export_artcnn_glsl(
     )
 
     if not fuse_depth_to_space:
-        parts.append(_emit_separate_d2s_pass(feat_name, F))
+        parts.append(_emit_separate_d2s_pass(feat_name, model_label))
 
     return "\n".join(parts)
 
