@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -177,7 +178,6 @@ class AlexNetLPIPS(nn.Module):
     def _features(self, x: torch.Tensor) -> list[torch.Tensor]:
         if x.shape[1] == 1:
             x = x.expand(-1, 3, -1, -1)
-        # Convert [0, 1] -> [-1, 1] -> LPIPS scaling
         h = (2.0 * x - 1.0 - self.shift) / self.scale
         f1 = self.slice1(h)
         f2 = self.slice2(f1)
@@ -200,14 +200,132 @@ class AlexNetLPIPS(nn.Module):
         return total
 
 
+class _L2Pooling(nn.Module):
+    """Anti-aliased 5x5 Hanning-window L2 pooling used by DISTS (Ding et al., TPAMI 2020)."""
+
+    def __init__(self, channels: int, filter_size: int = 5, stride: int = 2):
+        super().__init__()
+        self.channels = channels
+        self.stride = stride
+        self.padding = (filter_size - 2) // 2
+        a = np.hanning(filter_size + 2)[1:-1]
+        g = torch.tensor(a[:, None] * a[None, :], dtype=torch.float32)
+        g = g / g.sum()
+        self.register_buffer("filter", g[None, None, :, :].repeat(channels, 1, 1, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_sq = x * x
+        out = F.conv2d(x_sq, self.filter, stride=self.stride, padding=self.padding, groups=self.channels)
+        return torch.sqrt(out + 1e-12)
+
+
+class DISTS(nn.Module):
+    """Exact Deep Image Structure and Texture Similarity (DISTS) in pure PyTorch.
+
+    Combines VGG16 features with anti-aliased L2 pooling and calibrated structure/texture
+    weights (`alpha`, `beta`) across 6 scales (3 + 64 + 128 + 256 + 512 + 512 = 1475 channels).
+    """
+
+    def __init__(self, vgg_weights: str | Path, dists_weights: str | Path):
+        super().__init__()
+        self.stage1 = nn.Sequential(
+            nn.Conv2d(3, 64, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(inplace=True),
+        )
+        self.stage2 = nn.Sequential(
+            _L2Pooling(64),
+            nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, 3, padding=1), nn.ReLU(inplace=True),
+        )
+        self.stage3 = nn.Sequential(
+            _L2Pooling(128),
+            nn.Conv2d(128, 256, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, 3, padding=1), nn.ReLU(inplace=True),
+        )
+        self.stage4 = nn.Sequential(
+            _L2Pooling(256),
+            nn.Conv2d(256, 512, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(inplace=True),
+        )
+        self.stage5 = nn.Sequential(
+            _L2Pooling(512),
+            nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(inplace=True),
+        )
+        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+        self.chns = (3, 64, 128, 256, 512, 512)
+
+        vgg_sd = torch.load(vgg_weights, map_location="cpu", weights_only=True)
+        mapping = [
+            (self.stage1[0], "features.0"), (self.stage1[2], "features.2"),
+            (self.stage2[1], "features.5"), (self.stage2[3], "features.7"),
+            (self.stage3[1], "features.10"), (self.stage3[3], "features.12"), (self.stage3[5], "features.14"),
+            (self.stage4[1], "features.17"), (self.stage4[3], "features.19"), (self.stage4[5], "features.21"),
+            (self.stage5[1], "features.24"), (self.stage5[3], "features.26"), (self.stage5[5], "features.28"),
+        ]
+        with torch.no_grad():
+            for conv, prefix in mapping:
+                conv.weight.copy_(vgg_sd[f"{prefix}.weight"])
+                conv.bias.copy_(vgg_sd[f"{prefix}.bias"])
+        dists_sd = torch.load(dists_weights, map_location="cpu", weights_only=True)
+        alpha = dists_sd["alpha"].float()
+        beta = dists_sd["beta"].float()
+        denom = (alpha + beta).sum().clamp_min(1e-8)
+        self.register_buffer("alpha", alpha / denom)
+        self.register_buffer("beta", beta / denom)
+        self.eval().requires_grad_(False)
+
+    def _features(self, x: torch.Tensor) -> list[torch.Tensor]:
+        if x.shape[1] == 1:
+            x = x.expand(-1, 3, -1, -1)
+        h = (x - self.mean) / self.std
+        h1 = self.stage1(h)
+        h2 = self.stage2(h1)
+        h3 = self.stage3(h2)
+        h4 = self.stage4(h3)
+        h5 = self.stage5(h4)
+        return [x, h1, h2, h3, h4, h5]
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Return scalar mean DISTS distance over batch on [0, 1] tensors (0 = identical)."""
+        use_fp16 = pred.is_cuda
+        with torch.autocast("cuda", dtype=torch.float16, enabled=use_fp16):
+            feats_p = [f.float() for f in self._features(pred.float())]
+            with torch.no_grad():
+                feats_t = [f.float() for f in self._features(target.float())]
+        alphas = torch.split(self.alpha, self.chns, dim=1)
+        betas = torch.split(self.beta, self.chns, dim=1)
+        c1, c2 = 1e-6, 1e-6
+        dist1 = 0.0
+        dist2 = 0.0
+        for fp, ft, a, b in zip(feats_p, feats_t, alphas, betas, strict=True):
+            mp = fp.mean([2, 3], keepdim=True)
+            mt = ft.mean([2, 3], keepdim=True)
+            s1 = (2.0 * mp * mt + c1) / (mp * mp + mt * mt + c1)
+            dist1 = dist1 + (a * s1).sum(dim=1, keepdim=True)
+
+            vp = ((fp - mp) ** 2).mean([2, 3], keepdim=True)
+            vt = ((ft - mt) ** 2).mean([2, 3], keepdim=True)
+            cov = (fp * ft).mean([2, 3], keepdim=True) - mp * mt
+            s2 = (2.0 * cov + c2) / (vp + vt + c2)
+            dist2 = dist2 + (b * s2).sum(dim=1, keepdim=True)
+        return (1.0 - (dist1 + dist2)).mean()
+
+
 def find_lpips_weights() -> Optional[tuple[Path, Path]]:
     """Locate cached AlexNet + LPIPS weights if present on the machine."""
     alex_candidates = [
         Path(os.environ.get("ARTCNN_ALEXNET_WEIGHTS", "")),
+        Path.home() / ".local/share/artcnn-pareto/weights/alexnet-owt-7be5be79.pth",
         Path.home() / ".cache/torch/hub/checkpoints/alexnet-owt-7be5be79.pth",
     ]
     lpips_candidates = [
         Path(os.environ.get("ARTCNN_LPIPS_WEIGHTS", "")),
+        Path.home() / ".local/share/artcnn-pareto/weights/lpips_alex.pth",
         Path.home() / ".local/share/artcnn-pareto/perceptual-exp/lpips_alex.pth",
         Path.home() / ".cache/artcnn/lpips_alex.pth",
     ]
@@ -215,6 +333,27 @@ def find_lpips_weights() -> Optional[tuple[Path, Path]]:
     lpips = next((p for p in lpips_candidates if p and p.is_file()), None)
     if alex and lpips:
         return alex, lpips
+    return None
+
+
+def find_dists_weights() -> Optional[tuple[Path, Path]]:
+    """Locate cached VGG16 features + DISTS weights if present on the machine."""
+    vgg_candidates = [
+        Path(os.environ.get("ARTCNN_VGG16_WEIGHTS", "")),
+        Path.home() / ".local/share/artcnn-pareto/weights/vgg16_features.pth",
+        Path.home() / ".cache/torch/hub/checkpoints/vgg16_features.pth",
+        Path.home() / ".cache/torch/hub/checkpoints/vgg16-397923af.pth",
+    ]
+    dists_candidates = [
+        Path(os.environ.get("ARTCNN_DISTS_WEIGHTS", "")),
+        Path.home() / ".local/share/artcnn-pareto/weights/dists_weights.pt",
+        Path.home() / ".cache/torch/hub/checkpoints/dists_weights.pt",
+        Path.home() / ".cache/artcnn/dists_weights.pt",
+    ]
+    vgg = next((p for p in vgg_candidates if p and p.is_file()), None)
+    dists = next((p for p in dists_candidates if p and p.is_file()), None)
+    if vgg and dists:
+        return vgg, dists
     return None
 
 
@@ -273,3 +412,51 @@ class FoldableECB(nn.Module):
         w += self.sobel_x_mix.weight.detach().double() * sx[None, None, :, :]
         w += self.sobel_y_mix.weight.detach().double() * sy[None, None, :, :]
         return w.float(), b.float()
+
+
+class FoldableGroupedECB(nn.Module):
+    """5-branch linear EdgeConvBlock that folds losslessly into a grouped 3x3 Conv2d (no bias)."""
+
+    def __init__(self, channels: int, groups: int):
+        super().__init__()
+        self.channels = channels
+        self.groups = groups
+        self.group_ch = channels // groups
+        self.conv3 = nn.Conv2d(channels, channels, 3, padding=1, groups=groups, bias=False)
+        self.conv1 = nn.Conv2d(channels, channels, 1, padding=0, groups=groups, bias=False)
+        self.sobel_x_mix = nn.Conv2d(channels, channels, 1, padding=0, groups=groups, bias=False)
+        self.sobel_y_mix = nn.Conv2d(channels, channels, 1, padding=0, groups=groups, bias=False)
+        self.register_buffer("sx", _SOBEL_X.view(1, 1, 3, 3).repeat(channels, 1, 1, 1) * 4.0)
+        self.register_buffer("sy", _SOBEL_Y.view(1, 1, 3, 3).repeat(channels, 1, 1, 1) * 4.0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = self.conv3(x) + self.conv1(x) + x
+        y = y + F.conv2d(self.sobel_x_mix(x), self.sx, padding=1, groups=self.channels)
+        y = y + F.conv2d(self.sobel_y_mix(x), self.sy, padding=1, groups=self.channels)
+        return y
+
+    @torch.no_grad()
+    def initialize_from_weight(self, weight: torch.Tensor) -> None:
+        w = weight.clone()
+        for g in range(self.groups):
+            base = g * self.group_ch
+            for c in range(self.group_ch):
+                w[base + c, c, 1, 1] -= 1.0
+        self.conv3.weight.copy_(w)
+        nn.init.zeros_(self.conv1.weight)
+        nn.init.zeros_(self.sobel_x_mix.weight)
+        nn.init.zeros_(self.sobel_y_mix.weight)
+
+    @torch.no_grad()
+    def fold_weight(self) -> torch.Tensor:
+        w = self.conv3.weight.detach().double().clone()
+        w[:, :, 1, 1] += self.conv1.weight.detach().double().squeeze(-1).squeeze(-1)
+        for g in range(self.groups):
+            base = g * self.group_ch
+            for c in range(self.group_ch):
+                w[base + c, c, 1, 1] += 1.0
+        sx = self.sx[0, 0].double()
+        sy = self.sy[0, 0].double()
+        w += self.sobel_x_mix.weight.detach().double() * sx[None, None, :, :]
+        w += self.sobel_y_mix.weight.detach().double() * sy[None, None, :, :]
+        return w.float()

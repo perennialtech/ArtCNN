@@ -113,12 +113,16 @@ def subpixel_shimmer_loss(
     hr: torch.Tensor,
     pred: torch.Tensor,
     downscale_fn,
+    shift: tuple[int, int] = (1, 1),
 ) -> torch.Tensor:
-    """Penalize disagreement between upscaling LR(hr) and LR(1-px shifted hr) (= 0.5-px LR shift)."""
-    hr_shifted = torch.roll(hr, shifts=(1, 1), dims=(-2, -1))
+    """Penalize disagreement between upscaling LR(hr) and LR(shifted hr) (= 0.5-px LR shift).
+
+    Supports horizontal (0, 1), vertical (1, 0), and diagonal (1, 1) 1-px HR shifts.
+    """
+    sy, sx = shift
+    hr_shifted = torch.roll(hr, shifts=(sy, sx), dims=(-2, -1))
     lr_shifted = downscale_fn(hr_shifted).to(memory_format=torch.channels_last)
     pred_shifted = model(lr_shifted)
-    # Overlap: pred[:, :, 12:-13, 12:-13] aligns with pred_shifted[:, :, 13:-12, 13:-12]
-    va = pred.float()[:, :, 12:-13, 12:-13]
-    vb = pred_shifted.float()[:, :, 13:-12, 13:-12]
+    va = pred.float()[:, :, 12 : pred.shape[-2] - 12 - sy, 12 : pred.shape[-1] - 12 - sx]
+    vb = pred_shifted.float()[:, :, 12 + sy : pred.shape[-2] - 12, 12 + sx : pred.shape[-1] - 12]
     return torch.sqrt((va - vb).square() + 1e-6).mean()
