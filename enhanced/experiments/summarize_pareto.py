@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Summarize paired reconstruction and repeated renderer timings."""
 import argparse
 from collections import defaultdict

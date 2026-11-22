@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Realistic anime degradation pipeline (multi-kernel resize, ringing, 4x4 DCT codec).
 
 Extends ArtCNN v1.6.2's 4x4 DCT compression idea from Chroma models to Luma

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Algebraic collapse of consecutive linear 3x3 convolutions into a 5x5 convolution,
 plus exact interior-vs-border numerical verification.
 

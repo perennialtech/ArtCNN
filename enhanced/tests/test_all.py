@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Comprehensive verification suite for ArtCNN Enhanced."""
 
 from __future__ import annotations

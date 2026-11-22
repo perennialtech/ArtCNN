@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Faithful NumPy implementation of ArtCNN C-series with analytic backprop,
 AdamW, EMA, LeakyReLU, and optional direct bilinear input residual skip.
 

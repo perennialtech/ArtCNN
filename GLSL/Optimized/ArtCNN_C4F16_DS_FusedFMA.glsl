@@ -1,6 +1,8 @@
 // MIT License
+// SPDX-License-Identifier: MIT
 
 // Copyright (c) 2024 Joao Chrisostomo, Kacper Michajłow
+// Copyright (c) 2026 perennialtech contributors (shader optimizations)
 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal

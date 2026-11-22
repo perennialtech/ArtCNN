@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2024-2026 João Chrisóstomo
+# SPDX-License-Identifier: MIT
+
 import numpy as np
 import jax.numpy as jnp
 import dm_pix as pix

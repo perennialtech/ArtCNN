@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Structural re-parameterization (ECB / RepVGG-style foldable edge-conv blocks).
 
 During training, each internal 3x3 layer has 5 parallel linear branches:

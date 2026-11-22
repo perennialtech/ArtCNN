@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Reconstruction quality of stock and candidate CPU ONNX models on held-out frames."""
 import argparse
 import hashlib

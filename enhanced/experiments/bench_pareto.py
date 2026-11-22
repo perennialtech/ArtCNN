@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Score candidate shaders with the same inputs and renderer as the stock controls."""
 import argparse
 import json

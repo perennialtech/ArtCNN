@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Benchmark ArtCNN mpv shaders through FFmpeg's Vulkan libplacebo filter."""
 from collections import defaultdict
 from contextlib import contextmanager
@@ -72,7 +75,7 @@ def validate_log(path, model):
     if re.search(r"(shader.*(?:error|fail)|(?:error|fail).*shader|disabling.*hook)", log, re.I):
         raise RuntimeError(f"Shader error in {path}")
     if MODELS[model]:
-        specs = Path("shaders", MODELS[model]).read_text().splitlines()
+        specs = Path("shaders", MODELS[model]).read_text(encoding="utf-8").splitlines()
         for desc in (line.removeprefix("//!DESC ") for line in specs if line.startswith("//!DESC ")):
             if f"Registering hook pass: {desc}" not in log:
                 raise RuntimeError(f"Missing hook {desc!r} in {path}")

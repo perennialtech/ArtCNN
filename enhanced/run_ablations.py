@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Reproducible 3-way local ablation benchmark for ArtCNN C4F16:
   1. Baseline C4F16: pure L1, clean INTER_AREA downscale, ReLU, flat LR, 8-pass GLSL
   2. Zero-Cost C4F16: EXACT SAME baseline architecture/shader, upgraded training recipe
@@ -227,9 +230,9 @@ def main() -> None:
     base_glsl = export_artcnn_glsl(baseline, fuse_depth_to_space=False)
     zc_glsl = export_artcnn_glsl(zero_cost, fuse_depth_to_space=True)
     enh_glsl = export_artcnn_glsl(enhanced, fuse_depth_to_space=True)
-    (out_dir / "ArtCNN_C4F16_Baseline.glsl").write_text(base_glsl, encoding="utf-8")
-    (out_dir / "ArtCNN_C4F16_ZeroCost_Fused.glsl").write_text(zc_glsl, encoding="utf-8")
-    (out_dir / "ArtCNN_C4F16_Enhanced_Fused.glsl").write_text(enh_glsl, encoding="utf-8")
+    (out_dir / "ArtCNN_C4F16_Baseline.glsl").write_text(base_glsl, encoding="utf-8", newline="\n")
+    (out_dir / "ArtCNN_C4F16_ZeroCost_Fused.glsl").write_text(zc_glsl, encoding="utf-8", newline="\n")
+    (out_dir / "ArtCNN_C4F16_Enhanced_Fused.glsl").write_text(enh_glsl, encoding="utf-8", newline="\n")
 
     summary = {
         "baseline": {

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 João Chrisóstomo
+# SPDX-License-Identifier: MIT
+
 import os
 import argparse
 import numpy as np

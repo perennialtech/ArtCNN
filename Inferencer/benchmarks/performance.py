@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Repeated warm CPU timings with real, SHA-verified, held-out animation frames."""
 import argparse
 import hashlib

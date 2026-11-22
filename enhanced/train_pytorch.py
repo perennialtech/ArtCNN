@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 perennialtech contributors
+# SPDX-License-Identifier: MIT
+
 """Early PyTorch GPU trainer for ArtCNN C4F32 / C4F16.
   - Foldable 5-branch EdgeConvBlock (ECB) -> collapsed to standard 3x3 convs on export
   - Blended Charbonnier L1 + Sobel edge-agreement + 2D FFT + Temporal-shift consistency
@@ -183,7 +186,7 @@ def main() -> None:
     np_model.features.b = ema_model.features.bias.detach().cpu().numpy()
 
     glsl = export_artcnn_glsl(np_model, fuse_depth_to_space=True)
-    Path(f"{args.out_prefix}_Fused.glsl").write_text(glsl, encoding="utf-8")
+    Path(f"{args.out_prefix}_Fused.glsl").write_text(glsl, encoding="utf-8", newline="\n")
     torch.save(ema_model.state_dict(), f"{args.out_prefix}.pth")
     print(f"Exported {args.out_prefix}_Fused.glsl and {args.out_prefix}.pth")
 

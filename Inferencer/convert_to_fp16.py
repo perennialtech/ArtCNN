@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 João Chrisóstomo
+# SPDX-License-Identifier: MIT
+
 import onnx
 import glob
 from pathlib import Path
