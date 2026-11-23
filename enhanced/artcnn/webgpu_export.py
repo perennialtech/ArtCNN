@@ -124,6 +124,8 @@ def export_artcnn_webgpu(
                 blob_f16, _ = _pack_vec4_layer_dense(layer, "<f2")
             role = "internal"
             activation = cfg.activation
+            if cfg.activation == "prelu" and layer_name in model.prelu_slopes:
+                meta["prelu_slopes"] = [float(v) for v in model.prelu_slopes[layer_name]]
         elif idx == cfg.internal_layers + 1:
             if layer_name in grouped_kernels:
                 blob_f32, meta = _pack_vec4_layer_grouped(layer, *grouped_kernels[layer_name], "<f4")

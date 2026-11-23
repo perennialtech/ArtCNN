@@ -39,12 +39,28 @@ function types(useF16) {
       };
 }
 
-function activationExpr(varName, activation, leakySlope, t) {
+function preluConstDecl(preluSlopes, countV4, t) {
+  if (!preluSlopes || preluSlopes.length !== countV4 * 4) return "";
+  const vecs = [];
+  for (let p = 0; p < countV4; p++) {
+    const a = t.lit(preluSlopes[p * 4]);
+    const b = t.lit(preluSlopes[p * 4 + 1]);
+    const c = t.lit(preluSlopes[p * 4 + 2]);
+    const d = t.lit(preluSlopes[p * 4 + 3]);
+    vecs.push(`${t.V4}(${a}, ${b}, ${c}, ${d})`);
+  }
+  return `const PRELU_SLOPES = array<${t.V4}, ${countV4}>(${vecs.join(", ")});\n`;
+}
+
+function activationExpr(varName, activation, leakySlope, t, preluSlopes = null) {
   if (activation === "relu") {
     return `max(${varName}, ${t.zeroV4})`;
   }
   if (activation === "leaky_relu") {
     return `max(${varName}, ${varName} * ${t.lit(leakySlope)})`;
+  }
+  if (activation === "prelu" && preluSlopes) {
+    return `max(${varName}, ${varName} * PRELU_SLOPES[p])`;
   }
   return varName;
 }
@@ -150,9 +166,10 @@ fn main(
 /**
  * Dense 3x3 convolution: C_IN_V4 planar vec4<F> -> C_OUT_V4 planar vec4<F>.
  */
-export function buildConvDenseShader({ cInV4, cOutV4, activation = "none", leakySlope = 0.1, useF16 = false }) {
+export function buildConvDenseShader({ cInV4, cOutV4, activation = "none", leakySlope = 0.1, preluSlopes = null, useF16 = false }) {
   const t = types(useF16);
-  const act = activationExpr("acc", activation, leakySlope, t);
+  const preluDecl = activation === "prelu" ? preluConstDecl(preluSlopes, cOutV4, t) : "";
+  const act = activationExpr("acc", activation, leakySlope, t, preluSlopes);
   const sharedElems = TILE_AREA * cInV4;
   return /* wgsl */ `${t.enable}
 struct Dims {
@@ -171,7 +188,7 @@ const TILE_AREA: u32 = ${TILE_AREA}u;
 @group(0) @binding(2) var<storage, read> params: array<${t.V4}>;
 @group(0) @binding(3) var<storage, read_write> outBuf: array<${t.V4}>;
 
-var<workgroup> tile: array<${t.V4}, ${sharedElems}>;
+${preluDecl}var<workgroup> tile: array<${t.V4}, ${sharedElems}>;
 
 @compute @workgroup_size(${WG_X}, ${WG_Y})
 fn main(
@@ -230,9 +247,10 @@ fn main(
 /**
  * Grouped 4-channel 3x3 spatial conv + 1x1 pointwise mixing conv.
  */
-export function buildConvGroupedShader({ gV4, activation = "none", leakySlope = 0.1, useF16 = false }) {
+export function buildConvGroupedShader({ gV4, activation = "none", leakySlope = 0.1, preluSlopes = null, useF16 = false }) {
   const t = types(useF16);
-  const act = activationExpr("acc", activation, leakySlope, t);
+  const preluDecl = activation === "prelu" ? preluConstDecl(preluSlopes, gV4, t) : "";
+  const act = activationExpr("acc", activation, leakySlope, t, preluSlopes);
   const sharedElems = TILE_AREA * gV4;
   return /* wgsl */ `${t.enable}
 struct Dims {
@@ -250,7 +268,7 @@ const TILE_AREA: u32 = ${TILE_AREA}u;
 @group(0) @binding(2) var<storage, read> params: array<${t.V4}>;
 @group(0) @binding(3) var<storage, read_write> outBuf: array<${t.V4}>;
 
-var<workgroup> tile: array<${t.V4}, ${sharedElems}>;
+${preluDecl}var<workgroup> tile: array<${t.V4}, ${sharedElems}>;
 
 @compute @workgroup_size(${WG_X}, ${WG_Y})
 fn main(

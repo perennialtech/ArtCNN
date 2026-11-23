@@ -115,6 +115,7 @@ export class WebGPUUpscaler {
           cOutV4: layer.c_out / 4,
           activation: layer.activation,
           leakySlope: manifest.leaky_slope,
+          preluSlopes: layer.prelu_slopes ?? null,
           useF16: wantF16,
         });
       } else if (layer.role === "features_d2s") {
@@ -128,6 +129,7 @@ export class WebGPUUpscaler {
           gV4: layer.c_in / 4,
           activation: layer.activation,
           leakySlope: manifest.leaky_slope,
+          preluSlopes: layer.prelu_slopes ?? null,
           useF16: wantF16,
         });
       } else {
@@ -136,6 +138,7 @@ export class WebGPUUpscaler {
           cOutV4: layer.c_out / 4,
           activation: layer.activation,
           leakySlope: manifest.leaky_slope,
+          preluSlopes: layer.prelu_slopes ?? null,
           useF16: wantF16,
         });
       }

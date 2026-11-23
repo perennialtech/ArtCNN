@@ -61,7 +61,7 @@ class LumaGuidedChromaNet(nn.Module):
         # Reshape (N, 8, H, W) -> 2 channels x (2x2) pixel shuffle
         cb = F.pixel_shuffle(res[:, 0:4], 2)
         cr = F.pixel_shuffle(res[:, 4:8], 2)
-        base = F.interpolate(chroma_lr, scale_factor=2, mode="bilinear", align_corners=False)
+        base = F.interpolate(chroma_lr, scale_factor=2, mode="bicubic", align_corners=False).clamp(0.0, 1.0)
         return base + torch.cat([cb, cr], dim=1)
 
     def save_npz(self, path: Path) -> None:
@@ -253,17 +253,42 @@ def export_chroma_glsl(net: LumaGuidedChromaNet, label: str = "C2F12_Chroma", wo
                     mcr = W[4:8, i*4:(i+1)*4, ky, kx].T
                     lines.append(f"    cb = fma(M4({_fmt_floats(mcb)}), v{i}, cb);")
                     lines.append(f"    cr = fma(M4({_fmt_floats(mcr)}), v{i}, cr);")
+        # Exact 2x Catmull-Rom bicubic (matching PyTorch F.interpolate(..., mode="bicubic", align_corners=False))
+        # For 2x scale, sub-pixel offsets from center pixel p are -0.25 (left/top) and +0.25 (right/bottom).
+        # Catmull-Rom weights at t=0.25: [-9/128, 111/128, 29/128, -3/128] (and reversed for t=0.75 / -0.25).
         lines.extend([
-            "    ivec2 out_xy = ivec2(gl_GlobalInvocationID) * 2;",
-            "    vec2 inv_sz = vec2(1.0) / vec2(LUMA_size);",
-            "    vec2 b00 = CHROMA_tex((vec2(out_xy) + vec2(0.5, 0.5)) * inv_sz).xy;",
-            "    vec2 b01 = CHROMA_tex((vec2(out_xy) + vec2(1.5, 0.5)) * inv_sz).xy;",
-            "    vec2 b10 = CHROMA_tex((vec2(out_xy) + vec2(0.5, 1.5)) * inv_sz).xy;",
-            "    vec2 b11 = CHROMA_tex((vec2(out_xy) + vec2(1.5, 1.5)) * inv_sz).xy;",
-            "    imageStore(out_image, out_xy + ivec2(0, 0), vec4(clamp(b00 + vec2(cb.x, cr.x), 0.0, 1.0), 0.0, 1.0));",
-            "    imageStore(out_image, out_xy + ivec2(1, 0), vec4(clamp(b01 + vec2(cb.y, cr.y), 0.0, 1.0), 0.0, 1.0));",
-            "    imageStore(out_image, out_xy + ivec2(0, 1), vec4(clamp(b10 + vec2(cb.z, cr.z), 0.0, 1.0), 0.0, 1.0));",
-            "    imageStore(out_image, out_xy + ivec2(1, 1), vec4(clamp(b11 + vec2(cb.w, cr.w), 0.0, 1.0), 0.0, 1.0));",
+            "    ivec2 c_xy = ivec2(gl_GlobalInvocationID);",
+            "    ivec2 c_max = tile_sz - ivec2(1);",
+            "    // Notice: for subpixel 0 (left/top, -0.25 from c_xy), taps are c_xy + {-2,-1,0,+1};",
+            "    // for subpixel 1 (right/bottom, +0.25 from c_xy), taps are c_xy + {-1,0,+1,+2}.",
+            "    const float w_neg[4] = float[4](-0.0234375, 0.2265625, 0.8671875, -0.0703125);",
+            "    const float w_pos[4] = float[4](-0.0703125, 0.8671875, 0.2265625, -0.0234375);",
+            "    vec2 ch5[5][5];",
+            "    for (int dy = -2; dy <= 2; ++dy) {",
+            "        for (int dx = -2; dx <= 2; ++dx) {",
+            "            ivec2 q = clamp(c_xy + ivec2(dx, dy), ivec2(0), c_max);",
+            "            ch5[dy + 2][dx + 2] = CHROMA_mul * texelFetch(CHROMA_raw, q, 0).xy;",
+            "        }",
+            "    }",
+            "    vec2 b00 = vec2(0.0); vec2 b01 = vec2(0.0); vec2 b10 = vec2(0.0); vec2 b11 = vec2(0.0);",
+            "    for (int j = 0; j < 4; ++j) {",
+            "        vec2 r00 = vec2(0.0); vec2 r01 = vec2(0.0); vec2 r10 = vec2(0.0); vec2 r11 = vec2(0.0);",
+            "        for (int i = 0; i < 4; ++i) {",
+            "            r00 += w_neg[i] * ch5[j][i];",
+            "            r01 += w_pos[i] * ch5[j][i + 1];",
+            "            r10 += w_neg[i] * ch5[j + 1][i];",
+            "            r11 += w_pos[i] * ch5[j + 1][i + 1];",
+            "        }",
+            "        b00 += w_neg[j] * r00;",
+            "        b01 += w_neg[j] * r01;",
+            "        b10 += w_pos[j] * r10;",
+            "        b11 += w_pos[j] * r11;",
+            "    }",
+            "    ivec2 out_xy = c_xy * 2;",
+            "    imageStore(out_image, out_xy + ivec2(0, 0), vec4(clamp(clamp(b00, 0.0, 1.0) + vec2(cb.x, cr.x), 0.0, 1.0), 0.0, 1.0));",
+            "    imageStore(out_image, out_xy + ivec2(1, 0), vec4(clamp(clamp(b01, 0.0, 1.0) + vec2(cb.y, cr.y), 0.0, 1.0), 0.0, 1.0));",
+            "    imageStore(out_image, out_xy + ivec2(0, 1), vec4(clamp(clamp(b10, 0.0, 1.0) + vec2(cb.z, cr.z), 0.0, 1.0), 0.0, 1.0));",
+            "    imageStore(out_image, out_xy + ivec2(1, 1), vec4(clamp(clamp(b11, 0.0, 1.0) + vec2(cb.w, cr.w), 0.0, 1.0), 0.0, 1.0));",
             "}",
         ])
         return "\n".join(lines) + "\n"

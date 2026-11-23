@@ -36,6 +36,8 @@ from artcnn.perceptual import (
     FoldableECB,
     FoldableGroupedECB,
     fft_magnitude_loss,
+    fp16_ste,
+    ldl_artifact_loss,
     find_dists_weights,
     find_lpips_weights,
     halo_ringing_mae,
@@ -104,27 +106,63 @@ class Model(nn.Module):
         self.config = config
         self.grouped = grouped
         self.use_ecb = use_ecb
+        self.qat_fp16 = False
         filters = config.filters
+        dil_set = set(config.dilated_layers)
         middle = []
         for i in range(config.internal_layers + 1):
+            layer_idx = i + 1  # 1-based internal layer index
+            dil = 2 if (i < config.internal_layers and layer_idx in dil_set) else 1
             if grouped:
                 middle.append(GroupedMix(filters, use_ecb=(use_ecb and i < config.internal_layers)))
             elif use_ecb and i < config.internal_layers:
-                middle.append(FoldableECB(filters, filters))
+                middle.append(FoldableECB(filters, filters, dilation=dil))
             else:
-                middle.append(nn.Conv2d(filters, filters, 3, padding=1))
+                middle.append(nn.Conv2d(filters, filters, 3, padding=dil, dilation=dil))
         self.convs = nn.ModuleList([nn.Conv2d(1, filters, 3, padding=1), *middle, nn.Conv2d(filters, 4, 3, padding=1)])
+        if config.activation == "prelu":
+            self.prelus = nn.ParameterList([
+                nn.Parameter(torch.full((filters,), config.leaky_slope, dtype=torch.float32))
+                for _ in range(config.internal_layers)
+            ])
+        else:
+            self.prelus = None
         if config.input_skip:
             nn.init.zeros_(self.convs[-1].weight)
             nn.init.zeros_(self.convs[-1].bias)
 
+    def _apply_act(self, h: torch.Tensor, idx: int) -> torch.Tensor:
+        act = self.config.activation
+        if act == "prelu" and self.prelus is not None:
+            slope = self.prelus[idx].view(1, -1, 1, 1)
+            return torch.maximum(h, h * slope)
+        if act == "silu":
+            return F.silu(h)
+        if act == "leaky_relu":
+            return F.leaky_relu(h, self.config.leaky_slope)
+        return F.relu(h)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         skip = self.convs[0](x)
+        if self.qat_fp16:
+            skip = fp16_ste(skip)
         h = skip
-        for layer in self.convs[1:-2]:
+        local_skip = skip
+        for idx, layer in enumerate(self.convs[1:-2]):
             h = layer(h)
-            h = F.leaky_relu(h, self.config.leaky_slope) if self.config.activation == "leaky_relu" else F.relu(h)
-        out = F.pixel_shuffle(self.convs[-1](self.convs[-2](h) + skip), 2)
+            h = self._apply_act(h, idx)
+            if self.config.local_residuals and (idx + 1) % 2 == 0:
+                if self.config.span_attention:
+                    h = (h + local_skip) * (torch.sigmoid(h) + 0.5)
+                else:
+                    h = h + local_skip
+                local_skip = h
+            if self.qat_fp16:
+                h = fp16_ste(h)
+        mix = self.convs[-2](h)
+        if self.qat_fp16:
+            mix = fp16_ste(mix)
+        out = F.pixel_shuffle(self.convs[-1](mix + skip), 2)
         if self.config.input_skip:
             out = out + F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
         return out
@@ -156,9 +194,38 @@ class Model(nn.Module):
             self._load_conv_weights(layer, weight, bias)
 
     @torch.no_grad()
+    def warm_start_npz(self, path: Path):
+        """Load matching conv weights from an existing checkpoint even when upgrading
+        activation (e.g. leaky_relu -> prelu), dilation, or SPAN local residuals."""
+        with np.load(path) as data:
+            src_cfg = ArtCNNCConfig(**json.loads(data["config"].item()))
+            for (name, _), layer in zip(ArtCNNC(self.config).layers(), self.convs, strict=True):
+                w_key, b_key = f"{name}.W", f"{name}.b"
+                if w_key not in data or b_key not in data:
+                    continue
+                if isinstance(layer, GroupedMix):
+                    if f"{name}.spatial" in data:
+                        layer.load_spatial_weight(torch.from_numpy(data[f"{name}.spatial"].copy()))
+                        layer.mix.weight.copy_(torch.from_numpy(data[f"{name}.mix"][:, :, None, None].copy()))
+                        layer.mix.bias.copy_(torch.from_numpy(data[b_key].copy()))
+                else:
+                    w = data[w_key]
+                    target_shape = tuple(layer.conv3.weight.shape) if isinstance(layer, FoldableECB) else tuple(layer.weight.shape)
+                    if tuple(w.shape) == target_shape:
+                        self._load_conv_weights(layer, w, data[b_key])
+            if self.prelus is not None:
+                for i, p in enumerate(self.prelus, start=1):
+                    key = f"conv2d_{i}.prelu"
+                    if key in data:
+                        p.copy_(torch.from_numpy(data[key].copy()))
+                    else:
+                        p.fill_(src_cfg.leaky_slope if src_cfg.activation == "leaky_relu" else 0.0)
+
+    @torch.no_grad()
     def load_npz(self, path: Path):
         with np.load(path) as data:
-            if json.loads(data["config"].item()) != asdict(self.config):
+            loaded_cfg = ArtCNNCConfig(**json.loads(data["config"].item()))
+            if loaded_cfg != self.config:
                 raise ValueError(f"Checkpoint configuration does not match: {path}")
             for (name, _), layer in zip(ArtCNNC(self.config).layers(), self.convs, strict=True):
                 if isinstance(layer, GroupedMix):
@@ -167,6 +234,11 @@ class Model(nn.Module):
                     layer.mix.bias.copy_(torch.from_numpy(data[f"{name}.b"].copy()))
                 else:
                     self._load_conv_weights(layer, data[f"{name}.W"], data[f"{name}.b"])
+            if self.prelus is not None:
+                for i, p in enumerate(self.prelus, start=1):
+                    key = f"conv2d_{i}.prelu"
+                    if key in data:
+                        p.copy_(torch.from_numpy(data[key].copy()))
 
     def export(self, directory: Path, stem: str, workgroup: tuple[int, int]):
         portable = ArtCNNC(self.config)
@@ -189,6 +261,9 @@ class Model(nn.Module):
             else:
                 dst.W = src.weight.detach().cpu().numpy().copy()
                 dst.b = src.bias.detach().cpu().numpy().copy()
+        if self.prelus is not None:
+            for i, p in enumerate(self.prelus, start=1):
+                portable.prelu_slopes[f"conv2d_{i}"] = p.detach().cpu().numpy().copy()
         np.savez(directory / f"{stem}.npz", **portable.state_dict(), **extra, config=json.dumps(asdict(self.config)))
         shader = export_artcnn_glsl(portable, fuse_depth_to_space=True, grouped_kernels=kernels)
         (directory / f"{stem}.glsl").write_text(retile_shader(shader, *workgroup), encoding="utf-8", newline="\n")
@@ -257,11 +332,12 @@ class Pairs:
 
 
 class Patches(Dataset):
-    def __init__(self, source, patch, steps, batch, seed):
+    def __init__(self, source, patch, steps, batch, seed, hard_mining: bool = False):
         self.source = source
         self.patch = patch
         self.count = steps * batch
         self.seed = seed
+        self.hard_mining = hard_mining
 
     def __len__(self):
         return self.count
@@ -271,8 +347,15 @@ class Patches(Dataset):
         i = int(rng.integers(len(self.source.sources)))
         h, w = self.source.sources[i][0].shape
         level = int(rng.integers(2))
-        search = 3 if rng.random() < 0.55 else 1
+        if self.hard_mining:
+            search = 5 if rng.random() < 0.65 else 1
+            std_thresh = 18.0
+        else:
+            search = 3 if rng.random() < 0.55 else 1
+            std_thresh = 15.0
         hevc = None
+        best_crop = None
+        best_std = -1.0
         for _ in range(search):
             y = int(rng.integers((h - self.patch) // 2 + 1)) * 2
             x = int(rng.integers((w - self.patch) // 2 + 1)) * 2
@@ -281,8 +364,13 @@ class Patches(Dataset):
                 hr, lr, hevc = cropped
             else:
                 hr, lr = cropped
-            if hr[::4, ::4].std() > 15:
+            st = float(hr[::4, ::4].std())
+            if st > best_std:
+                best_std = st
+                best_crop = (hr, lr, hevc)
+            if st > std_thresh:
                 break
+        hr, lr, hevc = best_crop
         angle = int(rng.integers(4))
         hr, lr = np.rot90(hr, angle), np.rot90(lr, angle)
         if hevc is not None:
@@ -313,7 +401,20 @@ def quantize(x):
     return (219 * x).round().clamp_(0, 219) / 219
 
 
-def degradation(hr, compressed, mode, sigma=0.8, rng=None, extended=False, hevc=None):
+def two_stage_descale(hr, rng):
+    """Simulate native 720p/810p/844p anime upscaled to 1080p then downscaled to 540p."""
+    _, _, h, w = hr.shape
+    ratio = float(rng.uniform(0.68, 0.88))
+    mh = max(8, int(round(h * ratio)) // 2 * 2)
+    mw = max(8, int(round(w * ratio)) // 2 * 2)
+    mid = F.interpolate(hr, size=(mh, mw), mode="bicubic", align_corners=False, antialias=True).clamp(0.0, 1.0)
+    up = F.interpolate(mid, size=(h, w), mode="bicubic", align_corners=False).clamp(0.0, 1.0)
+    return quantize(F.interpolate(up, scale_factor=0.5, mode="bicubic", align_corners=False, antialias=True).clamp(0.0, 1.0))
+
+
+def degradation(hr, compressed, mode, sigma=0.8, rng=None, extended=False, hevc=None, v4_deg=False):
+    if v4_deg and rng is not None and mode == 1 and rng.random() < 0.25:
+        return two_stage_descale(hr, rng)
     if mode == 3 and hevc is not None:
         if extended and rng is not None and rng.random() < 0.20:
             return quantize(unsharp_ringing(hevc, float(rng.uniform(0.10, 0.28)), 0.75))
@@ -435,6 +536,7 @@ def pixel_loss(
     lpips_weight=0.0,
     dists_fn=None,
     dists_weight=0.0,
+    distill_dists_weight=0.0,
 ):
     p = pred.float()[:, :, 12:-12, 12:-12]
     t = target[:, :, 12:-12, 12:-12]
@@ -457,8 +559,12 @@ def pixel_loss(
     if dists_fn is not None and dists_weight > 0:
         objective = objective + dists_weight * dists_fn(p.clamp(0.0, 1.0), t)
     if teacher is not None:
-        imitation = (pred.float().clamp(0, 1) - teacher.float())[:, :, 12:-12, 12:-12]
-        objective = objective + imitation_weight * imitation.abs().mean()
+        t_crop = teacher.float()[:, :, 12:-12, 12:-12]
+        imitation = p.clamp(0.0, 1.0) - t_crop
+        if imitation_weight > 0:
+            objective = objective + imitation_weight * imitation.abs().mean()
+        if dists_fn is not None and distill_dists_weight > 0:
+            objective = objective + distill_dists_weight * dists_fn(p.clamp(0.0, 1.0), t_crop)
     return objective
 
 
@@ -484,20 +590,39 @@ def train(args):
     cuda = torch.device("cuda")
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for this training run")
+    default_act = "relu" if args.upstream else "leaky_relu"
     config = ArtCNNCConfig(
         filters=args.filters,
         internal_layers=args.layers,
-        activation="relu" if args.upstream else "leaky_relu",
+        activation=args.activation or default_act,
         input_skip=not args.upstream,
+        dilated_layers=tuple(args.dilated_layers),
+        local_residuals=args.local_residuals,
+        span_attention=args.span_attention,
     )
     if args.initialize:
         with np.load(args.initialize) as data:
             config = ArtCNNCConfig(**json.loads(data["config"].item()))
+    elif args.warm_start:
+        with np.load(args.warm_start) as data:
+            src_cfg = ArtCNNCConfig(**json.loads(data["config"].item()))
+            config = ArtCNNCConfig(
+                filters=args.filters if args.filters else src_cfg.filters,
+                internal_layers=args.layers if args.layers else src_cfg.internal_layers,
+                activation=args.activation or src_cfg.activation,
+                leaky_slope=src_cfg.leaky_slope,
+                input_skip=src_cfg.input_skip,
+                dilated_layers=tuple(args.dilated_layers),
+                local_residuals=args.local_residuals,
+                span_attention=args.span_attention,
+            )
     model = Model(config, grouped=args.grouped, **({"use_ecb": True} if args.ecb else {}))
     if args.upstream:
         model.load_onnx(args.upstream)
     if args.initialize:
         model.load_npz(args.initialize)
+    elif args.warm_start:
+        model.warm_start_npz(args.warm_start)
     model = model.to(device=cuda, memory_format=torch.channels_last)
 
     teacher = None
@@ -525,7 +650,7 @@ def train(args):
 
     ema = copy.deepcopy(model).eval().requires_grad_(False)
     paired = Pairs(args.train)
-    patches = Patches(paired, args.patch, args.steps, args.batch, args.seed)
+    patches = Patches(paired, args.patch, args.steps, args.batch, args.seed, hard_mining=args.hard_mining)
     batches = DataLoader(patches, batch_size=args.batch, num_workers=args.workers, pin_memory=True, drop_last=True)
     val, val_has_hevc = validation_samples(args.dev)
     use_hevc = paired.has_hevc and not args.no_hevc
@@ -554,7 +679,7 @@ def train(args):
         f"Edge {[round(x, 4) for x in metrics['edge_mae']]} score={best:.3f}",
         flush=True,
     )
-    if args.upstream or args.initialize:
+    if args.upstream or args.initialize or args.warm_start:
         ema.export(args.output, "best", tuple(args.workgroup))
     history = [{"step": 0, **metrics, "score": best}]
     shimmer_shifts = ((1, 0), (0, 1), (1, 1))
@@ -564,8 +689,10 @@ def train(args):
         sigma_step = float(rng.uniform(0.55, 1.1))
         lr = degradation(
             hr, compressed, mode, sigma_step, rng=rng, extended=args.extended_degradation,
-            hevc=hevc_t if use_hevc else None,
+            hevc=hevc_t if use_hevc else None, v4_deg=args.v4_degradation,
         ).to(memory_format=torch.channels_last)
+        if args.fp16_qat and step > int(args.steps * 0.75):
+            model.qat_fp16 = True
         rate = args.lr * (0.12 + 0.88 * (1 + math.cos(math.pi * step / args.steps)) / 2)
         optim.param_groups[0]["lr"] = rate
         optim.zero_grad(set_to_none=True)
@@ -585,7 +712,16 @@ def train(args):
             lpips_weight=args.lpips_weight,
             dists_fn=dists_fn,
             dists_weight=args.dists_weight,
+            distill_dists_weight=args.distill_dists_weight,
         )
+        if args.ldl_weight > 0 and step > 20:
+            with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
+                ema_pred = ema(lr).clamp_(0, 1)
+            value = value + args.ldl_weight * ldl_artifact_loss(
+                pred.float().clamp(0.0, 1.0)[:, :, 12:-12, 12:-12],
+                ema_pred.float()[:, :, 12:-12, 12:-12],
+                hr[:, :, 12:-12, 12:-12],
+            )
         if args.shimmer_weight > 0 and mode in (0, 1, 2):
             shift = shimmer_shifts[step % len(shimmer_shifts)]
             with torch.autocast("cuda", dtype=torch.float16):
@@ -660,6 +796,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--upstream", type=Path)
     parser.add_argument("--initialize", type=Path)
+    parser.add_argument("--warm-start", type=Path)
     parser.add_argument("--teacher", type=Path)
     parser.add_argument("--filters", type=int, default=16)
     parser.add_argument("--layers", type=int, default=4)
@@ -690,6 +827,15 @@ def main():
     parser.add_argument("--evaluate-every", type=int, default=500)
     parser.add_argument("--workgroup", type=int, nargs=2, default=[8, 8])
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--activation", choices=["relu", "leaky_relu", "prelu", "silu"], default=None)
+    parser.add_argument("--dilated-layers", type=int, nargs="*", default=[])
+    parser.add_argument("--local-residuals", action="store_true")
+    parser.add_argument("--span-attention", action="store_true")
+    parser.add_argument("--ldl-weight", type=float, default=0.0)
+    parser.add_argument("--distill-dists-weight", type=float, default=0.0)
+    parser.add_argument("--v4-degradation", action="store_true")
+    parser.add_argument("--hard-mining", action="store_true")
+    parser.add_argument("--fp16-qat", action="store_true")
     parser.add_argument("--seed", type=int, default=41001)
     train(parser.parse_args())
 

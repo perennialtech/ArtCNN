@@ -265,3 +265,12 @@ test("ycbcrToRgbaBT709Dithered stays within 1 LSB of undithered output", () => {
   }
   assert.ok(maxDiff <= 1, `Expected <= 1 LSB diff, got ${maxDiff}`);
 });
+
+test("WGSL shader builders emit per-channel PRELU_SLOPES when activation is prelu", () => {
+  const slopes = [0.05, 0.10, 0.15, 0.20, 0.08, 0.12, 0.18, 0.22];
+  const dense = buildConvDenseShader({ cInV4: 2, cOutV4: 2, activation: "prelu", preluSlopes: slopes, useF16: false });
+  assert.match(dense, /const PRELU_SLOPES = array<vec4<f32>, 2>/);
+  assert.match(dense, /max\(acc, acc \* PRELU_SLOPES\[p\]\)/);
+  const grouped = buildConvGroupedShader({ gV4: 2, activation: "prelu", preluSlopes: slopes, useF16: true });
+  assert.match(grouped, /const PRELU_SLOPES = array<vec4<f16>, 2>/);
+});
