@@ -5,7 +5,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ArtCNN — 2x anime upscaling in the browser</title>
+    <title>ArtCNN — Clean still upscaling in the browser</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,7 +19,7 @@
       <header class="masthead">
         <div class="brand">
           <h1>ArtCNN</h1>
-          <p>2x anime upscaling in your browser</p>
+          <p>Clean-source still upscaling in your browser</p>
         </div>
         <div class="telemetry">
           <span class="telemetry-engine">
@@ -33,27 +33,32 @@
       </header>
 
       <main id="dropZone" class="stage">
-        <div id="viewer" class="viewer">
-          <canvas id="outputCanvas"></canvas>
-          <div id="curtain" class="curtain">
-            <div
-              id="curtainHandle"
-              class="curtain-handle"
-              role="slider"
-              tabindex="0"
-              aria-label="Compare bilinear and ArtCNN"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow="50"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <polyline points="8 7 3 12 8 17"></polyline>
-                <polyline points="16 7 21 12 16 17"></polyline>
-              </svg>
+        <div id="viewerWrap" class="viewer-wrap">
+          <div id="viewer" class="viewer">
+            <canvas id="outputCanvas"></canvas>
+            <div id="curtain" class="curtain">
+              <div
+                id="curtainHandle"
+                class="curtain-handle"
+                role="slider"
+                tabindex="0"
+                aria-label="Compare bilinear and ArtCNN"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="50"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <polyline points="8 7 3 12 8 17"></polyline>
+                  <polyline points="16 7 21 12 16 17"></polyline>
+                </svg>
+              </div>
             </div>
+            <span class="side-tag left">Bilinear</span>
+            <span id="rightLabel" class="side-tag right">ArtCNN</span>
           </div>
-          <span class="side-tag left">Bilinear</span>
-          <span id="rightLabel" class="side-tag right">ArtCNN</span>
+        </div>
+        <div id="progressBar" class="progress-bar" aria-hidden="true">
+          <div id="progressFill" class="progress-fill"></div>
         </div>
       </main>
 
@@ -65,6 +70,13 @@
               <select id="modelSelect"></select>
             </div>
             <div class="control">
+              <label for="scaleSelect">Scale</label>
+              <select id="scaleSelect">
+                <option value="2" selected>2x</option>
+                <option value="4">4x</option>
+              </select>
+            </div>
+            <div class="control">
               <label for="backendSelect">Engine</label>
               <select id="backendSelect">
                 <option value="auto" selected>Auto</option>
@@ -72,20 +84,24 @@
                 <option value="cpu">CPU</option>
               </select>
             </div>
-            <div id="videoControls" class="video-controls">
-              <button id="playPauseBtn" type="button">Pause</button>
-              <span id="videoName"></span>
+            <div class="control">
+              <label for="zoomSelect">Zoom</label>
+              <select id="zoomSelect">
+                <option value="fit" selected>Fit</option>
+                <option value="1">100%</option>
+                <option value="2">200%</option>
+              </select>
             </div>
           </div>
           <div class="rail-group">
-            <button id="openFileBtn" class="primary" type="button">Open image or video</button>
+            <button id="openFileBtn" class="primary" type="button">Open image</button>
             <button id="sampleBtn" type="button">Reset sample</button>
             <button id="downloadBtn" type="button">Save PNG</button>
-            <input id="fileInput" type="file" accept="image/*,video/*" />
+            <input id="fileInput" type="file" accept="image/png,image/webp,image/jpeg,image/avif,image/*" />
           </div>
         </div>
         <div class="rail-meta">
-          <p id="statusText">Drag across the frame to compare, or drop any image or video onto the stage.</p>
+          <p id="statusText">Drag the divider to compare, or drop or paste any clean still image.</p>
         </div>
       </footer>
     </div>

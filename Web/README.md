@@ -1,78 +1,71 @@
 # ArtCNN for the Browser (WebGPU)
 
-Zero-dependency ES module runtime and interactive demo for running ArtCNN 2× anime upscaling directly in modern browsers using WebGPU compute shaders (with automatic `shader-f16` half-precision downloads when supported), an automatic `Float32Array` CPU fallback, and an optional `onnxruntime-web` helper.
+Zero-dependency ES module runtime and interactive workbench for **2× and 4× upscaling of clean still images** in modern browsers using WebGPU compute shaders (with automatic `shader-f16` half-precision downloads when supported), overlap tiling for bounded VRAM, off-main-thread Web Worker execution, and a `Float32Array` CPU fallback.
 
 ## Quick start
 
-Open the [live GitHub Pages demo](https://perennialtech.github.io/ArtCNN/), or serve the repository root locally with any static HTTP server and open `http://localhost:8000/`:
+Serve the repository root locally and open `http://localhost:8000/`:
 
 ```sh
 python3 -m http.server 8000
 ```
 
-Then visit `http://localhost:8000/` in a WebGPU-capable browser (Chrome, Edge, or recent Firefox/Safari). Drop any image or video file onto the viewer to upscale it in real time with a live bilinear vs. ArtCNN split comparison.
-
-## Browser model catalog
-
-The pre-exported bundles in [`Web/models/`](models/) ship both FP32 (`.bin`) and half-size FP16 (`.f16.bin`) weights alongside each JSON manifest. On adapters with WebGPU `shader-f16`, `loadModel()` downloads only the `.f16.bin` file and runs half-precision WGSL compute shaders with half the VRAM bandwidth and workgroup shared memory:
-
-| Model | Architecture | FP16 (`shader-f16`) | FP32 | Intended use |
-| --- | --- | ---: | ---: | --- |
-| [`ArtCNN_C3F8_Fast`](models/ArtCNN_C3F8_Fast.json) | C3F8 | 5.3 KB | 11 KB | Lowest GPU cost; ideal for real-time video on integrated GPUs |
-| [`ArtCNN_C4F16_Grouped`](models/ArtCNN_C4F16_Grouped.json) | C4F16 | 9.8 KB | 20 KB | Grouped 16-channel model for lower compute cost |
-| [`ArtCNN_C4F16_Clean`](models/ArtCNN_C4F16_Clean.json) | C4F16 | 25 KB | 49 KB | Preserve fine detail in clean animation sources |
-| [`ArtCNN_C4F16_Balanced`](models/ArtCNN_C4F16_Balanced.json) | C4F16 | 25 KB | 49 KB | Mixed clean, blurred, and compressed sources |
-| [`ArtCNN_C4F16_Restore`](models/ArtCNN_C4F16_Restore.json) | C4F16 | 25 KB | 49 KB | Restore blurred or compressed sources |
-| [`ArtCNN_C6F16_Restore`](models/ArtCNN_C6F16_Restore.json) | C6F16 | 34 KB | 68 KB | Deeper 6-layer 16-channel restoration model with larger receptive field |
-| [`ArtCNN_C4F32_Clean`](models/ArtCNN_C4F32_Clean.json) | C4F32 | 94 KB | 187 KB | Wider 32-channel clean model for dedicated GPUs |
-| [`ArtCNN_C4F32_Restore`](models/ArtCNN_C4F32_Restore.json) | C4F32 | 94 KB | 187 KB | Wider 32-channel restoration model for dedicated GPUs |
+Drop, open, or paste (`Ctrl+V`) any clean still image (PNG, WebP, JPEG, or AVIF) to upscale it 2× or 4× with a live split comparison, 100%/200% pixel-peeping zoom, and lossless PNG export.
 
 ## JavaScript API
 
-### WebGPU (with automatic `shader-f16` and CPU fallback)
+### Main-thread WebGPU / CPU upscaler
 
 ```js
 import { createUpscaler } from "./Web/src/index.js";
 
 const upscaler = await createUpscaler({
-  modelUrl: "./Web/models/ArtCNN_C4F16_Restore.json",
+  modelUrl: "./Web/models/ArtCNN_C4F32_Clean.json",
   backend: "auto",   // "auto" | "webgpu" | "cpu"
   precision: "auto", // "auto" | "f16" | "f32"
 });
 
-// Render an <img>, <video>, <canvas>, or ImageBitmap onto a 2x output canvas:
-upscaler.renderToCanvas(sourceElement, outputCanvas, { split: 0 });
+// Upscale an Image, ImageBitmap, or ImageData with overlap tiling (bounded VRAM):
+const outImageData = await upscaler.upscaleToImageData(sourceImage, {
+  scale: 2,        // 2 or 4
+  tileSize: 256,
+  onProgress: (p) => console.log(`${Math.round(p * 100)}%`),
+});
 
-// Or read back upscaled RGBA pixels as ImageData:
-const imageData = await upscaler.upscaleToImageData(sourceElement);
+// Or encode directly to a lossless PNG blob:
+const pngBlob = await upscaler.upscaleToBlob(sourceImage, { scale: 2, type: "image/png" });
 
 // Release GPU buffers when done:
 upscaler.destroy();
 ```
 
-### Using existing `.onnx` models with `onnxruntime-web`
-
-ArtCNN's luma ONNX models in [`ONNX/`](../ONNX/) and [`ONNX/CPU/`](../ONNX/CPU/) expect a single BT.709 luma channel. `OnnxLumaUpscaler` handles the BT.709 RGB ↔ YCbCr conversion and 2× Catmull-Rom anti-ringing chroma upscaling and triangular dithering for you:
+### Off-main-thread Web Worker upscaler
 
 ```js
-import * as ort from "onnxruntime-web";
-import { OnnxLumaUpscaler } from "./Web/src/onnx.js";
+import { createWorkerUpscaler } from "./Web/src/index.js";
 
-const upscaler = await OnnxLumaUpscaler.create(ort, "./ONNX/CPU/ArtCNN_C4F16_Restore.onnx");
-const outImageData = await upscaler.upscaleToImageData(inImageData);
+const worker = await createWorkerUpscaler({
+  modelUrl: "./Web/models/ArtCNN_R4F32_Clean.json",
+});
+
+const outRgba = await worker.upscaleRgba(imageData.data, imageData.width, imageData.height, {
+  scale: 2,
+  tileSize: 256,
+  onProgress: (p) => updateProgressBar(p),
+});
+
+worker.destroy();
 ```
 
 ## Regenerating browser bundles
 
-Browser bundles are generated directly from the Pareto checkpoints in [`enhanced/pareto/`](../enhanced/pareto/) via [`enhanced/export_web.py`](../enhanced/export_web.py):
-
 ```sh
-PYTHONPATH=enhanced uv run --locked python enhanced/export_web.py
+PYTHONPATH=training uv run --locked python training/export_web.py
 ```
 
 ## Running tests
 
 ```sh
 node --test Web/tests/*.mjs
-PYTHONPATH=enhanced uv run --locked python -m unittest enhanced/tests/test_webgpu_export.py
+PYTHONPATH=training uv run --locked python -m unittest training/tests/test_export.py
 ```

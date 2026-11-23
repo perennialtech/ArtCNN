@@ -8,176 +8,67 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { bicubicAR2x, bilinear2x, float16ToFloat32, rgbaToYCbCrBT709, ycbcrToRgbaBT709, ycbcrToRgbaBT709Dithered } from "../src/color.js";
+import { bilinear2xRgba, float16ToFloat32 } from "../src/color.js";
 import { CpuUpscaler } from "../src/cpu.js";
-import { OnnxLumaUpscaler } from "../src/onnx.js";
 import {
   buildConvDenseShader,
-  buildConvGroupedShader,
-  buildConvIn1Shader,
-  buildFinalD2SRgbShader,
+  buildConvIn3Shader,
+  buildFinalD2SRgbOutShader,
   buildPresentShader,
-  buildRgbToYShader,
 } from "../src/shaders.js";
+import { planTiles } from "../src/tiling.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..");
 const REPO_ROOT = path.resolve(WEB_DIR, "..");
 const MODELS_DIR = path.join(WEB_DIR, "models");
 
-function loadBundleFromDisk(modelId) {
+function loadBundleFromDisk(modelId, precision = "f32") {
   const manifest = JSON.parse(fs.readFileSync(path.join(MODELS_DIR, `${modelId}.json`), "utf8"));
-  const weights = new Uint8Array(fs.readFileSync(path.join(MODELS_DIR, manifest.weights_file)));
-  return { manifest, weights };
+  const file = precision === "f16" ? manifest.weights_f16_file : manifest.weights_file;
+  const weights = new Uint8Array(fs.readFileSync(path.join(MODELS_DIR, file)));
+  return { manifest, weights, precision };
 }
 
-test("BT.709 RGB <-> YCbCr roundtrip stays within 1 LSB", () => {
-  const rgba = new Uint8ClampedArray([
-    0, 0, 0, 255,
-    255, 255, 255, 255,
-    220, 40, 80, 255,
-    40, 180, 230, 255,
-  ]);
-  const { y, cb, cr } = rgbaToYCbCrBT709(rgba, 2, 2);
-  const back = ycbcrToRgbaBT709(y, cb, cr, 2, 2);
-  for (let i = 0; i < rgba.length; i++) {
-    assert.ok(Math.abs(back[i] - rgba[i]) <= 1, `channel ${i}: got ${back[i]}, expected ${rgba[i]}`);
+test("planTiles returns single tile when image fits and full coverage when tiled", () => {
+  const single = planTiles(128, 96, 256, 16);
+  assert.equal(single.length, 1);
+  assert.deepEqual(single[0], {
+    srcX: 0, srcY: 0, srcW: 128, srcH: 96,
+    validX: 0, validY: 0, validW: 128, validH: 96,
+    dstX: 0, dstY: 0,
+  });
+
+  const grid = planTiles(300, 280, 128, 16);
+  assert.equal(grid.length, 3 * 3);
+  let covered = 0;
+  for (const t of grid) {
+    assert.ok(t.srcX >= 0 && t.srcY >= 0);
+    assert.ok(t.srcX + t.srcW <= 300 && t.srcY + t.srcH <= 280);
+    assert.equal(t.validX, t.dstX - t.srcX);
+    assert.equal(t.validY, t.dstY - t.srcY);
+    covered += t.validW * t.validH;
   }
+  assert.equal(covered, 300 * 280);
 });
 
-test("bilinear2x preserves constant planes and doubles dimensions", () => {
-  const src = new Float32Array(6).fill(0.42);
-  const dst = bilinear2x(src, 3, 2);
-  assert.equal(dst.length, 24);
-  for (const v of dst) {
-    assert.ok(Math.abs(v - 0.42) < 1e-6);
+test("bilinear2xRgba preserves constant color and doubles dimensions", () => {
+  const rgba = new Uint8ClampedArray(3 * 2 * 4);
+  for (let i = 0; i < rgba.length; i += 4) {
+    rgba[i] = 120;
+    rgba[i + 1] = 180;
+    rgba[i + 2] = 60;
+    rgba[i + 3] = 200;
   }
+  const out = bilinear2xRgba(rgba, 3, 2);
+  assert.equal(out.length, 6 * 4 * 4);
+  assert.equal(out[0], 120);
+  assert.equal(out[1], 180);
+  assert.equal(out[2], 60);
+  assert.equal(out[3], 200);
 });
-
-test("WGSL shader builders generate valid entrypoints for dense and grouped configs", () => {
-  assert.match(buildRgbToYShader(), /@compute @workgroup_size\(8, 8\)/);
-  assert.match(buildConvIn1Shader({ cOutV4: 4, activation: "none" }), /const C_OUT_V4: u32 = 4u;/);
-  assert.match(buildConvDenseShader({ cInV4: 4, cOutV4: 4, activation: "leaky_relu", leakySlope: 0.1 }), /0\.100000/);
-  assert.match(buildConvGroupedShader({ gV4: 4, activation: "leaky_relu", leakySlope: 0.1 }), /var grouped: array<vec4<f32>, 4>;/);
-  assert.match(buildFinalD2SRgbShader({ cInV4: 4, inputSkip: true }), /\+ yBilin/);
-  assert.match(buildPresentShader(), /fn fsMain/);
-});
-
-test("CpuUpscaler matches Python ArtCNNC.forward() on dense and grouped models", () => {
-  const width = 12;
-  const height = 10;
-  const inputY = new Float32Array(width * height);
-  for (let i = 0; i < inputY.length; i++) {
-    inputY[i] = ((i * 37 + 13) % 97) / 96.0;
-  }
-
-  for (const modelId of ["ArtCNN_C3F8_Fast", "ArtCNN_C4F16_Restore", "ArtCNN_C4F16_Grouped"]) {
-    const bundle = loadBundleFromDisk(modelId);
-    const upscaler = new CpuUpscaler(bundle);
-    const jsOut = upscaler.upscaleLuma(inputY, width, height);
-    assert.equal(jsOut.length, width * 2 * height * 2);
-
-    const pyScript = `
-import json, sys, numpy as np
-from pathlib import Path
-from artcnn.webgpu_export import load_checkpoint
-
-ckpt = Path(sys.argv[1])
-w, h = int(sys.argv[2]), int(sys.argv[3])
-model, grouped = load_checkpoint(ckpt)
-x = np.array([((i * 37 + 13) % 97) / 96.0 for i in range(w * h)], dtype=np.float32).reshape(1, 1, h, w)
-
-if not grouped:
-    out = model.forward(x, clip=True)[0, 0]
-else:
-    # Run with grouped spatial + pointwise mixing kernels to match shader semantics
-    from artcnn.models_np import im2col_3x3, depth_to_space_2x, bilinear_upscale_2x
-    def grouped_fwd(inp, spatial, mix, b):
-        N, C, H, W = inp.shape
-        g_v4 = C // 4
-        out_g = np.empty_like(inp)
-        for z in range(g_v4):
-            sub = inp[:, z*4:(z+1)*4, :, :]
-            cols = im2col_3x3(sub)
-            wm = spatial[z*4:(z+1)*4].reshape(4, 36)
-            out_g[:, z*4:(z+1)*4, :, :] = (cols @ wm.T).reshape(N, H, W, 4).transpose(0, 3, 1, 2)
-        flat = out_g.transpose(0, 2, 3, 1).reshape(N * H * W, C)
-        mixed = flat @ mix.T + b
-        return mixed.reshape(N, H, W, C).transpose(0, 3, 1, 2)
-
-    c0 = model.conv0.forward(x)
-    h_act = c0
-    for name, layer in model.layers()[1:-2]:
-        if name in grouped:
-            pre = grouped_fwd(h_act, *grouped[name], layer.b)
-        else:
-            pre = layer.forward(h_act)
-        h_act = model._act_forward(pre, name)
-    mix_name, mix_layer = model.layers()[-2]
-    if mix_name in grouped:
-        mg = grouped_fwd(h_act, *grouped[mix_name], mix_layer.b)
-    else:
-        mg = mix_layer.forward(h_act)
-    feats = model.features.forward(mg + c0)
-    out = depth_to_space_2x(feats)
-    if model.config.input_skip:
-        out = out + bilinear_upscale_2x(x)
-    out = np.clip(out, 0.0, 1.0)[0, 0]
-
-print(json.dumps(out.flatten().tolist()))
-`;
-    const ckptPath = path.join(REPO_ROOT, "enhanced", "pareto", `${modelId}.npz`);
-    const stdout = execFileSync(
-      "uv",
-      ["run", "--locked", "python", "-c", pyScript, ckptPath, String(width), String(height)],
-      {
-        cwd: REPO_ROOT,
-        env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, "enhanced") },
-        encoding: "utf8",
-      },
-    );
-    const pyOut = JSON.parse(stdout);
-    let maxDiff = 0;
-    for (let i = 0; i < pyOut.length; i++) {
-      maxDiff = Math.max(maxDiff, Math.abs(jsOut[i] - pyOut[i]));
-    }
-    assert.ok(maxDiff < 1e-4, `${modelId} max abs diff ${maxDiff} exceeded 1e-4`);
-  }
-});
-
-test("OnnxLumaUpscaler wraps BT.709 color conversion around an ONNX session", async () => {
-  const mockOrt = {
-    Tensor: class {
-      constructor(type, data, dims) {
-        this.type = type;
-        this.data = data;
-        this.dims = dims;
-      }
-    },
-    InferenceSession: {
-      async create() {
-        return {
-          inputNames: ["input"],
-          outputNames: ["output"],
-          async run(feeds) {
-            const inp = feeds.input;
-            const [, , h, w] = inp.dims;
-            return { output: { data: bilinear2x(inp.data, w, h) } };
-          },
-        };
-      },
-    },
-  };
-  const upscaler = await OnnxLumaUpscaler.create(mockOrt, "dummy.onnx");
-  const rgba = new Uint8ClampedArray(4 * 4 * 4).fill(180);
-  const out = await upscaler.upscaleRgba(rgba, 4, 4);
-  assert.equal(out.length, 8 * 8 * 4);
-  assert.ok(Math.abs(out[0] - 180) <= 1);
-});
-
 
 test("float16ToFloat32 decodes IEEE-754 binary16 values accurately", () => {
-  // 0.0, -0.0, 1.0, -2.0, 0.5, smallest normal (2^-14)
   const u16 = new Uint16Array([0x0000, 0x8000, 0x3c00, 0xc000, 0x3800, 0x0400]);
   const f32 = float16ToFloat32(u16);
   assert.equal(f32[0], 0);
@@ -188,89 +79,64 @@ test("float16ToFloat32 decodes IEEE-754 binary16 values accurately", () => {
   assert.ok(Math.abs(f32[5] - Math.pow(2, -14)) < 1e-9);
 });
 
-test("WGSL shader builders emit valid shader-f16 modules when useF16 is true", () => {
-  const s1 = buildConvIn1Shader({ cOutV4: 4, activation: "none", useF16: true });
-  const s2 = buildConvDenseShader({ cInV4: 4, cOutV4: 4, activation: "leaky_relu", leakySlope: 0.1, useF16: true });
-  const s3 = buildConvGroupedShader({ gV4: 4, activation: "leaky_relu", leakySlope: 0.1, useF16: true });
-  const s4 = buildFinalD2SRgbShader({ cInV4: 4, inputSkip: true, useF16: true });
-  for (const s of [s1, s2, s3, s4]) {
-    assert.match(s, /^enable f16;/);
-    assert.match(s, /vec4<f16>/);
-  }
-  assert.match(s2, /mat4x4<f16>/);
-  assert.match(s3, /mat4x4<f16>/);
-  assert.match(s4, /vec4<f32>\(acc\)/);
-});
-
-test("FP16 bundles match FP32 output closely across dense and grouped models", () => {
-  const width = 12;
-  const height = 10;
-  const inputY = new Float32Array(width * height);
-  for (let i = 0; i < inputY.length; i++) {
-    inputY[i] = ((i * 37 + 13) % 97) / 96.0;
-  }
-  for (const modelId of ["ArtCNN_C3F8_Fast", "ArtCNN_C4F16_Restore", "ArtCNN_C4F16_Grouped"]) {
-    const manifest = JSON.parse(fs.readFileSync(path.join(MODELS_DIR, `${modelId}.json`), "utf8"));
-    const f32Weights = new Uint8Array(fs.readFileSync(path.join(MODELS_DIR, manifest.weights_file)));
-    const f16Weights = new Uint8Array(fs.readFileSync(path.join(MODELS_DIR, manifest.weights_f16_file)));
-    assert.equal(f16Weights.byteLength * 2, f32Weights.byteLength);
-
-    const out32 = new CpuUpscaler({ manifest, weights: f32Weights, precision: "f32" }).upscaleLuma(inputY, width, height);
-    const out16 = new CpuUpscaler({ manifest, weights: f16Weights, precision: "f16" }).upscaleLuma(inputY, width, height);
-    let maxDiff = 0;
-    for (let i = 0; i < out32.length; i++) {
-      maxDiff = Math.max(maxDiff, Math.abs(out32[i] - out16[i]));
-    }
-    assert.ok(maxDiff < 2e-3, `${modelId} f16 vs f32 max abs diff ${maxDiff} exceeded 2e-3`);
-  }
-});
-
-test("bicubicAR2x preserves constant planes and clamps overshoot on step edges", () => {
-  const w = 8, h = 8;
-  const flat = new Float32Array(w * h).fill(0.42);
-  const upFlat = bicubicAR2x(flat, w, h);
-  assert.equal(upFlat.length, w * 2 * h * 2);
-  for (let i = 0; i < upFlat.length; i++) {
-    assert.ok(Math.abs(upFlat[i] - 0.42) < 1e-5);
-  }
-  // Sharp step edge: 0 on left half, 1 on right half -> anti-ringing must keep values in [0, 1]
-  const step = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      step[y * w + x] = x < 4 ? 0.0 : 1.0;
+test("WGSL shader builders emit valid f32 and f16 RGB shaders with residual add", () => {
+  for (const useF16 of [false, true]) {
+    const sIn = buildConvIn3Shader({ cOutV4: 4, useF16 });
+    const sDense = buildConvDenseShader({ cInV4: 4, cOutV4: 4, activation: "leaky_relu", leakySlope: 0.1, residualAdd: true, useF16 });
+    const sFinal = buildFinalD2SRgbOutShader({ cInV4: 4, inputSkip: true, useF16 });
+    assert.match(sIn, /var srcTex: texture_2d<f32>/);
+    assert.match(sDense, /var<storage, read> resBuf:/);
+    assert.match(sDense, /acc \+= resBuf\[p \* planeStride \+ outPix\];/);
+    assert.match(sFinal, /var acc2 = params\[2\];/);
+    if (useF16) {
+      assert.match(sIn, /^enable f16;/);
+      assert.match(sDense, /mat4x4<f16>/);
+      assert.match(sFinal, /vec3<f32>\(f32\(rVal\)/);
     }
   }
-  const upStep = bicubicAR2x(step, w, h);
-  const upBil = bilinear2x(step, w, h);
-  for (let i = 0; i < upStep.length; i++) {
-    assert.ok(upStep[i] >= 0.0 && upStep[i] <= 1.0, `Anti-ringing violation: ${upStep[i]}`);
-  }
-  // BicubicAR should be sharper than bilinear at the step transition columns (x=7, x=8 in 2x space)
-  const midRow = 4 * (w * 2);
-  assert.ok(upStep[midRow + 7] < upBil[midRow + 7], "Expected sharper left transition than bilinear");
-  assert.ok(upStep[midRow + 8] > upBil[midRow + 8], "Expected sharper right transition than bilinear");
+  assert.match(buildPresentShader(), /fn fsMain/);
 });
 
-test("ycbcrToRgbaBT709Dithered stays within 1 LSB of undithered output", () => {
-  const w = 16, h = 16;
-  const y = new Float32Array(w * h);
-  const cb = new Float32Array(w * h).fill(0.5);
-  const cr = new Float32Array(w * h).fill(0.5);
-  for (let i = 0; i < w * h; i++) y[i] = i / (w * h - 1);
-  const base = ycbcrToRgbaBT709(y, cb, cr, w, h);
-  const dith = ycbcrToRgbaBT709Dithered(y, cb, cr, w, h);
-  let maxDiff = 0;
-  for (let i = 0; i < base.length; i++) {
-    maxDiff = Math.max(maxDiff, Math.abs(base[i] - dith[i]));
-  }
-  assert.ok(maxDiff <= 1, `Expected <= 1 LSB diff, got ${maxDiff}`);
-});
+test("CpuUpscaler matches catalog models, overlap tiling is seam-free, and FP16 matches FP32", () => {
+  const catalog = JSON.parse(fs.readFileSync(path.join(MODELS_DIR, "catalog.json"), "utf8"));
+  assert.equal(catalog.format, "artcnn-webgpu-rgb-catalog");
+  assert.ok(catalog.models.length >= 3);
 
-test("WGSL shader builders emit per-channel PRELU_SLOPES when activation is prelu", () => {
-  const slopes = [0.05, 0.10, 0.15, 0.20, 0.08, 0.12, 0.18, 0.22];
-  const dense = buildConvDenseShader({ cInV4: 2, cOutV4: 2, activation: "prelu", preluSlopes: slopes, useF16: false });
-  assert.match(dense, /const PRELU_SLOPES = array<vec4<f32>, 2>/);
-  assert.match(dense, /max\(acc, acc \* PRELU_SLOPES\[p\]\)/);
-  const grouped = buildConvGroupedShader({ gV4: 2, activation: "prelu", preluSlopes: slopes, useF16: true });
-  assert.match(grouped, /const PRELU_SLOPES = array<vec4<f16>, 2>/);
+  const w = 28;
+  const h = 24;
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    rgba[i * 4] = (i * 37 + 13) % 256;
+    rgba[i * 4 + 1] = (i * 53 + 7) % 256;
+    rgba[i * 4 + 2] = (i * 97 + 29) % 256;
+    rgba[i * 4 + 3] = 200;
+  }
+
+  for (const entry of catalog.models) {
+    const b32 = loadBundleFromDisk(entry.id, "f32");
+    const b16 = loadBundleFromDisk(entry.id, "f16");
+    const up32 = new CpuUpscaler(b32);
+    const up16 = new CpuUpscaler(b16);
+
+    const full = up32.upscaleRgba(rgba, w, h, { scale: 2, tileSize: 256 });
+    const tiled = up32.upscaleRgba(rgba, w, h, { scale: 2, tileSize: 12, overlap: 16 });
+    assert.equal(full.length, w * 2 * h * 2 * 4);
+    assert.deepEqual(tiled, full, `${entry.id} tiled output diverged from full-frame`);
+
+    // Alpha preserved
+    assert.equal(full[3], 200);
+
+    // FP16 parity (within 2 LSBs)
+    const out16 = up16.upscaleRgba(rgba, w, h, { scale: 2, tileSize: 256 });
+    let maxL1 = 0;
+    for (let i = 0; i < full.length; i++) {
+      maxL1 = Math.max(maxL1, Math.abs(full[i] - out16[i]));
+    }
+    assert.ok(maxL1 <= 2, `${entry.id} f16 vs f32 max diff ${maxL1} > 2`);
+  }
+
+  // 4x chained upscale check
+  const fast = new CpuUpscaler(loadBundleFromDisk(catalog.models[0].id, "f32"));
+  const out4x = fast.upscaleRgba(rgba, w, h, { scale: 4, tileSize: 256 });
+  assert.equal(out4x.length, w * 4 * h * 4 * 4);
 });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * ArtCNN browser runtime entrypoint.
+ * ArtCNN browser runtime entrypoint for Pareto-efficient clean still upscaling.
  */
 
 import { CpuUpscaler } from "./cpu.js";
@@ -10,8 +10,8 @@ import { WebGPUUpscaler } from "./webgpu.js";
 
 export { CpuUpscaler } from "./cpu.js";
 export { WebGPUUpscaler } from "./webgpu.js";
-export { OnnxLumaUpscaler } from "./onnx.js";
-export { bilinear2x, float16ToFloat32, rgbaToYCbCrBT709, ycbcrToRgbaBT709 } from "./color.js";
+export { planTiles } from "./tiling.js";
+export { bilinear2xPlane, bilinear2xRgba, float16ToFloat32, rgbaToPlanarRgb } from "./color.js";
 
 let _supportPromise = null;
 
@@ -46,10 +46,7 @@ export async function detectWebGPUSupport(options = {}) {
 }
 
 /**
- * Load an exported ArtCNN browser bundle (<model>.json + .f16.bin or .bin).
- *
- * When `options.precision` is "auto" (default), probes WebGPU `shader-f16` support
- * first and downloads only the half-size `.f16.bin` file when supported.
+ * Load an exported ArtCNN RGB browser bundle (<model>.json + .f16.bin or .bin).
  */
 export async function loadModel(manifestUrl, options = {}) {
   const fetcher = options.fetch || fetch;
@@ -58,7 +55,7 @@ export async function loadModel(manifestUrl, options = {}) {
     throw new Error(`Failed to fetch model manifest (${manifestRes.status}): ${manifestUrl}`);
   }
   const manifest = await manifestRes.json();
-  if (manifest.format !== "artcnn-webgpu") {
+  if (manifest.format !== "artcnn-webgpu-rgb") {
     throw new Error(`Unsupported model manifest format: ${manifest.format}`);
   }
 
@@ -90,12 +87,6 @@ export async function loadModel(manifestUrl, options = {}) {
 
 /**
  * Create a browser upscaler using WebGPU when available (or falling back to CPU).
- *
- * @param {object} options
- * @param {string} [options.modelUrl] URL to a <model>.json manifest.
- * @param {object} [options.model] Preloaded { manifest, weights, precision } object from loadModel().
- * @param {"auto"|"webgpu"|"cpu"} [options.backend="auto"] Preferred execution backend.
- * @param {"auto"|"f16"|"f32"} [options.precision="auto"] Preferred weight & compute precision.
  */
 export async function createUpscaler(options) {
   const backend = options.backend || "auto";
@@ -116,4 +107,79 @@ export async function createUpscaler(options) {
     }
   }
   return new CpuUpscaler(model);
+}
+
+/**
+ * Create an off-main-thread Web Worker upscaler with zero-copy buffer transfers and progress events.
+ */
+export async function createWorkerUpscaler(options) {
+  if (typeof Worker === "undefined") {
+    return createUpscaler(options);
+  }
+  const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  let nextId = 1;
+  const pending = new Map();
+
+  worker.onmessage = (event) => {
+    const msg = event.data;
+    const entry = pending.get(msg.id);
+    if (!entry) return;
+    if (msg.type === "progress") {
+      entry.onProgress?.(msg.progress);
+      return;
+    }
+    pending.delete(msg.id);
+    if (msg.type === "error") {
+      entry.reject(new Error(msg.message));
+    } else {
+      entry.resolve(msg);
+    }
+  };
+
+  worker.onerror = (err) => {
+    for (const [, entry] of pending) {
+      entry.reject(new Error(err.message || "Worker error"));
+    }
+    pending.clear();
+  };
+
+  const call = (payload, transfer = [], onProgress = null) =>
+    new Promise((resolve, reject) => {
+      const id = nextId++;
+      pending.set(id, { resolve, reject, onProgress });
+      worker.postMessage({ ...payload, id }, transfer);
+    });
+
+  const ready = await call({
+    type: "init",
+    modelUrl: options.modelUrl,
+    backend: options.backend || "auto",
+    precision: options.precision || "auto",
+  });
+
+  return {
+    backend: ready.backend,
+    precision: ready.precision,
+    async upscaleRgba(rgba, width, height, runOptions = {}) {
+      const copy = new Uint8ClampedArray(rgba);
+      const res = await call(
+        {
+          type: "upscale",
+          buffer: copy.buffer,
+          width,
+          height,
+          scale: runOptions.scale ?? 2,
+          tileSize: runOptions.tileSize ?? 256,
+          overlap: runOptions.overlap,
+        },
+        [copy.buffer],
+        runOptions.onProgress,
+      );
+      return new Uint8ClampedArray(res.buffer);
+    },
+    destroy() {
+      worker.terminate();
+      pending.clear();
+    },
+  };
 }
