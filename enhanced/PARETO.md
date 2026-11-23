@@ -78,6 +78,46 @@ The timing command uses 1080p → 2160p input upload and Vulkan rendering with G
 
 For quality runs on systems where libplacebo creates the Vulkan device, set `ARTCNN_INTERNAL_VULKAN=1` and set `ARTCNN_VULKAN_DEVICE` to the reported GPU name.
 
+## Cross-project Vulkan benchmark (RTX 3080)
+
+All 30 shaders below were benchmarked apples-to-apples through FFmpeg's Vulkan `libplacebo` renderer on an RTX 3080 (3-repeat 1080p → 2160p median FPS on Sol Levante; 16-bit Vulkan `yuv420p16le` luma output on the 96-frame held-out `Hayao_0` set scored with AlexNet LPIPS and VGG DISTS). Full per-regime JSON lives in `enhanced/pareto/cross_project_benchmark.json`.
+
+| Model | Family | 1080p→4K FPS | Area (LP / DI) | Blur (LP / DI) | H.264 (LP / DI) | HEVC (LP / DI) |
+| --- | --- | ---: | --- | --- | --- | --- |
+| `Spline36` | Classical | 578.6 | 0.0849 / 0.1043 | 0.1285 / 0.1410 | 0.1771 / 0.1670 | 0.1708 / 0.1625 |
+| `ravu-lite-ar-r4` | [mpv-prescalers](https://github.com/bjin/mpv-prescalers) | 561.1 | 0.0310 / 0.0495 | 0.0842 / 0.1056 | 0.1301 / 0.1344 | 0.1267 / 0.1299 |
+| `CuNNy-fast-DS` | [CuNNy](https://github.com/funnyplanter/CuNNy) | 530.4 | 0.0427 / 0.0633 | 0.0722 / 0.0929 | 0.1282 / 0.1305 | 0.1202 / 0.1233 |
+| **`ArtCNN_C3F8_Fast`** | **Ours** | **513.0** | **0.0306 / 0.0459** | **0.0612 / 0.0795** | 0.1291 / 0.1364 | **0.1167 / 0.1210** |
+| `Anime4K_CNN_x2_M` | [Anime4K v4.0.1](https://github.com/bloc97/Anime4K) | 483.9 | 0.0401 / 0.0538 | 0.0834 / 0.1000 | 0.1323 / 0.1325 | 0.1270 / 0.1279 |
+| `CuNNy-4x16-DS-Q` (`dp4a`) | [CuNNy](https://github.com/funnyplanter/CuNNy) | 473.9 | 0.0443 / 0.0695 | 0.0718 / 0.0974 | 0.1264 / 0.1292 | 0.1197 / 0.1254 |
+| **`ArtCNN_C3F12_Fast`** | **Ours** | **472.8** | **0.0291 / 0.0425** | **0.0610 / 0.0788** | **0.1252 / 0.1320** | **0.1157 / 0.1188** |
+| `CuNNy-4x12-DS` | [CuNNy](https://github.com/funnyplanter/CuNNy) | 452.6 | 0.0418 / 0.0651 | 0.0722 / 0.0957 | 0.1276 / 0.1287 | 0.1209 / 0.1247 |
+| `Anime4K_Denoise_L` | [Anime4K v4.0.1](https://github.com/bloc97/Anime4K) | 435.8 | 0.0526 / 0.0720 | 0.0939 / 0.1134 | 0.1367 / 0.1373 | 0.1331 / 0.1359 |
+| `Anime4K_CNN_x2_L` | [Anime4K v4.0.1](https://github.com/bloc97/Anime4K) | 434.1 | 0.0416 / 0.0621 | 0.0852 / 0.1085 | 0.1332 / 0.1361 | 0.1284 / 0.1333 |
+| **`ArtCNN_C4F16_Grouped`** | **Ours** | **417.4** | **0.0265 / 0.0389** | **0.0562 / 0.0757** | **0.1204 / 0.1276** | **0.1118 / 0.1156** |
+| `nnedi3-nns32-win8x4` | [mpv-prescalers](https://github.com/bjin/mpv-prescalers) | 402.4 | 0.0581 / 0.0774 | 0.1111 / 0.1267 | 0.1479 / 0.1471 | 0.1484 / 0.1464 |
+| `FSRCNNX_x2_8-0-4-1` | [FSRCNNX](https://github.com/igv/FSRCNN-TensorFlow/releases) | 390.9 | 0.0337 / 0.0549 | 0.0754 / 0.1033 | 0.1347 / 0.1412 | 0.1228 / 0.1312 |
+| `CuNNy-4x16-DS` | [CuNNy](https://github.com/funnyplanter/CuNNy) | 322.4 | 0.0438 / 0.0687 | 0.0719 / 0.0970 | 0.1269 / 0.1289 | 0.1204 / 0.1255 |
+| **`ArtCNN_C4F16_Restore`** | **Ours** | **321.7** | 0.0332 / 0.0455 | **0.0515 / 0.0677** | **0.1137 / 0.1170** | **0.1084 / 0.1092** |
+| **`ArtCNN_C4F16_Clean`** | **Ours** | **320.7** | **0.0210 / 0.0306** | 0.0653 / 0.0867 | 0.1239 / 0.1304 | 0.1160 / 0.1198 |
+| **`ArtCNN_C4F16_Balanced`** | **Ours** | **319.3** | 0.0245 / 0.0349 | 0.0541 / 0.0719 | 0.1174 / 0.1231 | 0.1101 / 0.1123 |
+| `nnedi3-nns64-win8x4` | [mpv-prescalers](https://github.com/bjin/mpv-prescalers) | 266.6 | 0.0572 / 0.0767 | 0.1117 / 0.1273 | 0.1472 / 0.1461 | 0.1485 / 0.1462 |
+| `Upstream ArtCNN_C4F16` | [Artoriuz/ArtCNN](https://github.com/Artoriuz/ArtCNN) | 256.6 | 0.0237 / 0.0350 | 0.0761 / 0.0956 | 0.1255 / 0.1295 | 0.1213 / 0.1235 |
+| `Upstream ArtCNN_C4F16_DS` | [Artoriuz/ArtCNN](https://github.com/Artoriuz/ArtCNN) | 256.9 | 0.0559 / 0.0769 | 0.0792 / 0.1016 | 0.1309 / 0.1310 | 0.1241 / 0.1280 |
+| **`ArtCNN_C6F16_Restore`** | **Ours** | **253.0** | 0.0357 / 0.0486 | 0.0534 / **0.0667** | 0.1150 / **0.1150** | 0.1088 / **0.1065** |
+| `Anime4K_CNN_x2_VL` | [Anime4K v4.0.1](https://github.com/bloc97/Anime4K) | 244.7 | 0.0419 / 0.0606 | 0.0849 / 0.1080 | 0.1307 / 0.1326 | 0.1271 / 0.1315 |
+| `Anime4K_Denoise_VL` | [Anime4K v4.0.1](https://github.com/bloc97/Anime4K) | 236.1 | 0.0515 / 0.0717 | 0.0891 / 0.1108 | 0.1328 / 0.1329 | 0.1292 / 0.1325 |
+| `FSRCNNX_x2_16-0-4-1` | [FSRCNNX](https://github.com/igv/FSRCNN-TensorFlow/releases) | 177.7 | 0.0287 / 0.0487 | 0.0703 / 0.1015 | 0.1302 / 0.1364 | 0.1179 / 0.1278 |
+| `CuNNy-4x32-DS-Q` (`dp4a`) | [CuNNy](https://github.com/funnyplanter/CuNNy) | 163.1 | 0.0416 / 0.0689 | 0.0671 / 0.0934 | 0.1236 / 0.1257 | 0.1170 / 0.1229 |
+| **`ArtCNN_C4F32_Clean`** | **Ours** | **115.8** | **0.0187 / 0.0277** | 0.0632 / 0.0801 | 0.1208 / 0.1275 | 0.1149 / 0.1166 |
+| **`ArtCNN_C4F32_Restore`** | **Ours** | **115.8** | 0.0311 / 0.0423 | **0.0489 / 0.0654** | **0.1122 / 0.1127** | **0.1064 / 0.1066** |
+| `Upstream ArtCNN_C4F32` | [Artoriuz/ArtCNN](https://github.com/Artoriuz/ArtCNN) | 41.0 | 0.0224 / 0.0341 | 0.0784 / 0.0984 | 0.1254 / 0.1284 | 0.1222 / 0.1244 |
+| `Upstream ArtCNN_C4F32_DS` | [Artoriuz/ArtCNN](https://github.com/Artoriuz/ArtCNN) | 40.9 | 0.0554 / 0.0828 | 0.0721 / 0.0983 | 0.1270 / 0.1264 | 0.1195 / 0.1242 |
+| `CuNNy-4x32-DS` | [CuNNy](https://github.com/funnyplanter/CuNNy) | 8.4 | 0.0413 / 0.0682 | 0.0671 / 0.0929 | 0.1242 / 0.1256 | 0.1173 / 0.1229 |
+
+- **Frontier dominance**: Below 520 FPS, zero Anime4K, FSRCNNX, NNEDI3, or upstream ArtCNN shaders survive on any LPIPS or DISTS Pareto frontier across the four regimes.
+- **Future speed lead**: CuNNy's 8-bit `dp4a` shaders (`CuNNy-4x16-DS-Q` at 473.9 FPS vs. FP16 322.4 FPS, +47%) show that optional Vulkan `GL_EXT_integer_dot_product` export could accelerate our `C4F16` and `C4F32` tiers substantially with minimal quantization loss; tracked in [Vulkan `dp4a` INT8 export](https://github.com/perennialtech/ArtCNN/issues/17).
+
 ## Experiments that reached a limit
 
 - **v5 6.5× dataset scaling (9,662 ATD-12K frames) + `ClipAnimeIQA` (`ViT-B-32` NR-IQA) + from-scratch `SPAN+Dil2+PReLU` ablation (`enhanced/pareto/perceptual_holdout_v5.json`)**:
