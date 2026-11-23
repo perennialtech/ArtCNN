@@ -364,11 +364,12 @@ class FoldableECB(nn.Module):
     and identity gradient paths.
     """
 
-    def __init__(self, c_in: int, c_out: int):
+    def __init__(self, c_in: int, c_out: int, dilation: int = 1):
         super().__init__()
         self.c_in = c_in
         self.c_out = c_out
-        self.conv3 = nn.Conv2d(c_in, c_out, 3, padding=1)
+        self.dilation = dilation
+        self.conv3 = nn.Conv2d(c_in, c_out, 3, padding=dilation, dilation=dilation)
         self.conv1 = nn.Conv2d(c_in, c_out, 1, padding=0)
         self.sobel_x_mix = nn.Conv2d(c_in, c_out, 1, padding=0, bias=False)
         self.sobel_y_mix = nn.Conv2d(c_in, c_out, 1, padding=0, bias=False)
@@ -379,8 +380,8 @@ class FoldableECB(nn.Module):
         y = self.conv3(x) + self.conv1(x)
         if self.c_in == self.c_out:
             y = y + x
-        y = y + F.conv2d(self.sobel_x_mix(x), self.sx, padding=1, groups=self.c_out)
-        y = y + F.conv2d(self.sobel_y_mix(x), self.sy, padding=1, groups=self.c_out)
+        y = y + F.conv2d(self.sobel_x_mix(x), self.sx, padding=self.dilation, dilation=self.dilation, groups=self.c_out)
+        y = y + F.conv2d(self.sobel_y_mix(x), self.sy, padding=self.dilation, dilation=self.dilation, groups=self.c_out)
         return y
 
     @torch.no_grad()
@@ -459,3 +460,38 @@ class FoldableGroupedECB(nn.Module):
         w += self.sobel_x_mix.weight.detach().double() * sx[None, None, :, :]
         w += self.sobel_y_mix.weight.detach().double() * sy[None, None, :, :]
         return w.float()
+
+
+def fp16_ste(x: torch.Tensor) -> torch.Tensor:
+    """Straight-through estimator simulating float16 rounding for GLSL/WebGPU QAT."""
+    return x + (x.to(torch.float16).to(x.dtype) - x).detach()
+
+
+def ldl_artifact_loss(
+    pred: torch.Tensor,
+    ema_pred: torch.Tensor,
+    target: torch.Tensor,
+    window_size: int = 7,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Locally Discriminative Learning (LDL, Liang et al. CVPR 2022) artifact loss.
+
+    Estimates local patch variance of the residual (pred - target) versus the stable
+    EMA reference (ema_pred - target) to penalize GAN/perceptual hallucination artifacts
+    in flat regions and halos without damping genuine high-frequency lineart.
+    """
+    p = pred.float()
+    e = ema_pred.detach().float()
+    t = target.float()
+    r_p = p - t
+    r_e = e - t
+    pad = window_size // 2
+    mean_p = F.avg_pool2d(r_p, window_size, stride=1, padding=pad)
+    var_p = (F.avg_pool2d(r_p * r_p, window_size, stride=1, padding=pad) - mean_p * mean_p).clamp_min(0.0)
+    mean_e = F.avg_pool2d(r_e, window_size, stride=1, padding=pad)
+    var_e = (F.avg_pool2d(r_e * r_e, window_size, stride=1, padding=pad) - mean_e * mean_e).clamp_min(0.0)
+    # Artifact weight map: pixels where pred exhibits higher local residual variance than EMA
+    # plus a smooth pixel-wise discrepancy gate
+    artifact_map = F.relu(var_p - var_e).sqrt()
+    artifact_map = artifact_map * (r_p.abs() / (r_e.abs() + 1e-3)).clamp(0.0, 5.0)
+    return (artifact_map.detach() * torch.sqrt(r_p * r_p + eps)).mean()

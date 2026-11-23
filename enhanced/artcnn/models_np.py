@@ -125,9 +125,16 @@ def bilinear_upscale_2x(x: np.ndarray) -> np.ndarray:
 class ArtCNNCConfig:
     filters: int = 16
     internal_layers: int = 4
-    activation: str = "relu"  # "relu" or "leaky_relu"
+    activation: str = "relu"  # "relu", "leaky_relu", "prelu", or "silu"
     leaky_slope: float = 0.1
     input_skip: bool = False  # direct bilinear input residual skip
+    dilated_layers: Tuple[int, ...] = ()  # 1-based internal layer indices using dilation=2
+    local_residuals: bool = False  # 2-layer local residual skips (conv2+=conv0, conv4+=conv2, ...)
+    span_attention: bool = False  # SPAN-style parameter-free attention at local residual boundaries
+
+    def __post_init__(self) -> None:
+        if isinstance(self.dilated_layers, list):
+            self.dilated_layers = tuple(int(x) for x in self.dilated_layers)
 
 
 class ArtCNNC:
@@ -143,6 +150,10 @@ class ArtCNNC:
         ]
         self.mix_global = Conv2D3x3(F, F, rng, zero_init=True)
         self.features = Conv2D3x3(F, 4, rng, zero_init=config.input_skip)
+        self.prelu_slopes: Dict[str, np.ndarray] = {
+            f"conv2d_{i}": np.full((F,), config.leaky_slope, dtype=np.float32)
+            for i in range(1, config.internal_layers + 1)
+        }
         self._act_caches: List[np.ndarray] = []
         self._last_base: Optional[np.ndarray] = None
 
@@ -154,7 +165,10 @@ class ArtCNNC:
         items.append((f"conv2d_{self.config.internal_layers + 2}", self.features))
         return items
 
-    def _act_forward(self, x: np.ndarray) -> np.ndarray:
+    def _act_forward(self, x: np.ndarray, layer_name: Optional[str] = None) -> np.ndarray:
+        if self.config.activation == "prelu" and layer_name and layer_name in self.prelu_slopes:
+            slopes = self.prelu_slopes[layer_name].reshape(1, -1, 1, 1)
+            return np.where(x > 0.0, x, x * slopes).astype(np.float32)
         if self.config.activation == "leaky_relu":
             s = self.config.leaky_slope
             return np.where(x > 0.0, x, x * s).astype(np.float32)
@@ -170,10 +184,14 @@ class ArtCNNC:
         c0 = self.conv0.forward(x)
         h = c0
         self._act_caches = []
-        for layer in self.internal:
+        for idx, layer in enumerate(self.internal, start=1):
             pre = layer.forward(h)
             self._act_caches.append(pre)
-            h = self._act_forward(pre)
+            if self.config.activation == "prelu":
+                slopes = self.prelu_slopes[f"conv2d_{idx}"].reshape(1, -1, 1, 1)
+                h = np.where(pre > 0.0, pre, pre * slopes).astype(np.float32)
+            else:
+                h = self._act_forward(pre)
         mg = self.mix_global.forward(h)
         add_g = mg + c0
         feats = self.features.forward(add_g)
@@ -209,12 +227,20 @@ class ArtCNNC:
         for name, layer in self.layers():
             sd[f"{name}.W"] = layer.W.copy()
             sd[f"{name}.b"] = layer.b.copy()
+        if self.config.activation == "prelu":
+            for name, slopes in self.prelu_slopes.items():
+                sd[f"{name}.prelu"] = slopes.astype(np.float32).copy()
         return sd
 
     def load_state_dict(self, sd: Dict[str, np.ndarray]) -> None:
         for name, layer in self.layers():
             layer.W = sd[f"{name}.W"].astype(np.float32).copy()
             layer.b = sd[f"{name}.b"].astype(np.float32).copy()
+        if self.config.activation == "prelu":
+            for name in list(self.prelu_slopes):
+                key = f"{name}.prelu"
+                if key in sd:
+                    self.prelu_slopes[name] = sd[key].astype(np.float32).copy()
 
     def clone(self) -> "ArtCNNC":
         m = ArtCNNC(copy.deepcopy(self.config))

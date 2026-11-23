@@ -9,9 +9,10 @@
 
 import { bilinear2x, clamp01, float16ToFloat32, rgbaToYCbCrBT709, ycbcrToRgbaBT709 } from "./color.js";
 
-function applyActivation(v, activation, leakySlope) {
+function applyActivation(v, activation, leakySlope, preluSlope = null) {
   if (activation === "relu") return v > 0 ? v : 0;
   if (activation === "leaky_relu") return v > 0 ? v : v * leakySlope;
+  if (activation === "prelu" && preluSlope !== null) return v > 0 ? v : v * preluSlope;
   return v;
 }
 
@@ -62,7 +63,7 @@ function mat4MulAdd(acc, params, mOff, v0, v1, v2, v3) {
   acc[3] += params[mOff + 3] * v0 + params[mOff + 7] * v1 + params[mOff + 11] * v2 + params[mOff + 15] * v3;
 }
 
-function convDense(inp, width, height, params, cInV4, cOutV4, activation, leakySlope) {
+function convDense(inp, width, height, params, cInV4, cOutV4, activation, leakySlope, preluSlopes = null) {
   const plane = width * height;
   const out = new Float32Array(cOutV4 * plane * 4);
   const wStart = cOutV4 * 4;
@@ -90,17 +91,17 @@ function convDense(inp, width, height, params, cInV4, cOutV4, activation, leakyS
           }
         }
         const o = outPlane + (y * width + x) * 4;
-        out[o] = applyActivation(acc[0], activation, leakySlope);
-        out[o + 1] = applyActivation(acc[1], activation, leakySlope);
-        out[o + 2] = applyActivation(acc[2], activation, leakySlope);
-        out[o + 3] = applyActivation(acc[3], activation, leakySlope);
+        out[o] = applyActivation(acc[0], activation, leakySlope, preluSlopes ? preluSlopes[p * 4] : null);
+        out[o + 1] = applyActivation(acc[1], activation, leakySlope, preluSlopes ? preluSlopes[p * 4 + 1] : null);
+        out[o + 2] = applyActivation(acc[2], activation, leakySlope, preluSlopes ? preluSlopes[p * 4 + 2] : null);
+        out[o + 3] = applyActivation(acc[3], activation, leakySlope, preluSlopes ? preluSlopes[p * 4 + 3] : null);
       }
     }
   }
   return out;
 }
 
-function convGrouped(inp, width, height, params, gV4, activation, leakySlope) {
+function convGrouped(inp, width, height, params, gV4, activation, leakySlope, preluSlopes = null) {
   const plane = width * height;
   const out = new Float32Array(gV4 * plane * 4);
   const spatialBase = gV4 * 4;
@@ -151,10 +152,10 @@ function convGrouped(inp, width, height, params, gV4, activation, leakySlope) {
           );
         }
         const o = p * plane * 4 + pixOff;
-        out[o] = applyActivation(acc[0], activation, leakySlope);
-        out[o + 1] = applyActivation(acc[1], activation, leakySlope);
-        out[o + 2] = applyActivation(acc[2], activation, leakySlope);
-        out[o + 3] = applyActivation(acc[3], activation, leakySlope);
+        out[o] = applyActivation(acc[0], activation, leakySlope, preluSlopes ? preluSlopes[p * 4] : null);
+        out[o + 1] = applyActivation(acc[1], activation, leakySlope, preluSlopes ? preluSlopes[p * 4 + 1] : null);
+        out[o + 2] = applyActivation(acc[2], activation, leakySlope, preluSlopes ? preluSlopes[p * 4 + 2] : null);
+        out[o + 3] = applyActivation(acc[3], activation, leakySlope, preluSlopes ? preluSlopes[p * 4 + 3] : null);
       }
     }
   }
@@ -224,9 +225,9 @@ export class CpuUpscaler {
         }
         return outY;
       } else if (layer.kind === "conv_grouped") {
-        cur = convGrouped(cur, width, height, params, layer.c_in / 4, layer.activation, manifest.leaky_slope);
+        cur = convGrouped(cur, width, height, params, layer.c_in / 4, layer.activation, manifest.leaky_slope, layer.prelu_slopes ?? null);
       } else {
-        cur = convDense(cur, width, height, params, layer.c_in / 4, layer.c_out / 4, layer.activation, manifest.leaky_slope);
+        cur = convDense(cur, width, height, params, layer.c_in / 4, layer.c_out / 4, layer.activation, manifest.leaky_slope, layer.prelu_slopes ?? null);
       }
     }
     throw new Error("Model manifest is missing features_d2s layer.");

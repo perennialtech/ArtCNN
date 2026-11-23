@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 from pathlib import Path
@@ -90,6 +91,7 @@ def main():
     device = torch.device("cuda")
     cfg = ChromaConfig(filters=args.filters, internal_layers=args.layers)
     net = LumaGuidedChromaNet(cfg).to(device)
+    ema = copy.deepcopy(net).eval().requires_grad_(False)
     lpips_fn = AlexNetLPIPS(*find_lpips_weights()).to(device)
     dists_fn = DISTS(*find_dists_weights()).to(device)
 
@@ -131,10 +133,13 @@ def main():
         scaler.scale(loss).backward()
         scaler.step(opt)
         scaler.update()
+        with torch.no_grad():
+            torch._foreach_lerp_(tuple(ema.parameters()), tuple(net.parameters()), max(0.01, 2 / (step + 2)))
         if step % 1000 == 0 or step == args.steps:
             print(f"Chroma step {step}/{args.steps} {time.monotonic()-t0:.1f}s loss={loss.item():.5f}", flush=True)
 
     # Evaluate on holdout 96 frames vs Bilinear and Bicubic chroma
+    net = ema
     net.eval()
     h_records = json.loads(args.holdout_manifest.read_text())
     metrics = {k: {"c_psnr": [], "rgb_psnr": [], "rgb_lpips": [], "rgb_dists": []} for k in ("bilinear", "bicubic", "artcnn_chroma")}

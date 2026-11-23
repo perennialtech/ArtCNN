@@ -99,6 +99,10 @@ def _emit_conv_pass(
     fuse_d2s: bool = False,
     input_skip: bool = False,
     grouped_kernel: Tuple[np.ndarray, np.ndarray] | None = None,
+    dilation: int = 1,
+    prelu_slopes: np.ndarray | None = None,
+    local_skip_name: str | None = None,
+    span_attention: bool = False,
 ) -> str:
     c_in, c_out = layer.c_in, layer.c_out
     threads_w, threads_h = 12, 16
@@ -107,7 +111,18 @@ def _emit_conv_pass(
 
     act_tag = ""
     if has_activation:
-        act_tag = "-LeakyReLU" if activation == "leaky_relu" else "-ReLU"
+        if activation == "prelu":
+            act_tag = "-PReLU"
+        elif activation == "silu":
+            act_tag = "-SiLU"
+        elif activation == "leaky_relu":
+            act_tag = "-LeakyReLU"
+        else:
+            act_tag = "-ReLU"
+    if dilation > 1:
+        act_tag += f"-Dil{dilation}"
+    if local_skip_name:
+        act_tag += "-SPAN" if span_attention else "-Res"
     if fuse_d2s:
         act_tag += "-FusedD2S" + ("-InputSkip" if input_skip else "")
 
@@ -129,6 +144,8 @@ def _emit_conv_pass(
             lines.append("//!BIND LUMA")
     else:
         lines.append(f"//!BIND {prev_name}")
+    if local_skip_name and local_skip_name != prev_name:
+        lines.append(f"//!BIND {local_skip_name}")
 
     if fuse_d2s:
         lines.append("//!WIDTH LUMA.w 2.0 *")
@@ -146,10 +163,17 @@ def _emit_conv_pass(
     weights_storage = "V4" if prev_name == "LUMA" else "M4"
     load_suffix = ".x" if prev_name == "LUMA" else ""
 
-    lines.append("const ivec2 ksize = ivec2(3, 3);")
-    lines.append("const ivec2 offset = ksize / 2;")
-    lines.append("const ivec2 wg_size = ivec2(gl_WorkGroupSize);")
-    lines.append("const ivec2 isize = wg_size + ksize - 1;")
+    if dilation == 1:
+        lines.append("const ivec2 ksize = ivec2(3, 3);")
+        lines.append("const ivec2 offset = ksize / 2;")
+        lines.append("const ivec2 wg_size = ivec2(gl_WorkGroupSize);")
+        lines.append("const ivec2 isize = wg_size + ksize - 1;")
+    else:
+        kspan = 2 * dilation + 1
+        lines.append(f"const ivec2 ksize = ivec2({kspan}, {kspan});")
+        lines.append(f"const ivec2 offset = ivec2({dilation}, {dilation});")
+        lines.append("const ivec2 wg_size = ivec2(gl_WorkGroupSize);")
+        lines.append(f"const ivec2 isize = wg_size + ivec2({2 * dilation}, {2 * dilation});")
     lines.append(f"shared {storage} inp[{tile_in_w * tile_in_h}][isize.y][isize.x];")
     lines.append("void hook() {")
     lines.append("    const uvec2 local_xy = gl_LocalInvocationID.xy;")
@@ -187,7 +211,7 @@ def _emit_conv_pass(
     for z in range(tile_in_w * tile_in_h):
         for ky in range(3):
             for kx in range(3):
-                lines.append(f"    const {storage} inp_{z}_{kx}_{ky} = inp[{z}][local_xy.y + {ky}][local_xy.x + {kx}];")
+                lines.append(f"    const {storage} inp_{z}_{kx}_{ky} = inp[{z}][local_xy.y + {ky * dilation}][local_xy.x + {kx * dilation}];")
         if grouped_kernel is not None:
             lines.append(f"    V4 group{z} = V4(0.0);")
             for ky in range(3):
@@ -233,13 +257,29 @@ def _emit_conv_pass(
         for p in range(tile_w * tile_h):
             tx, ty = get_tile_off(p, tile_w)
             if has_activation:
-                if activation == "leaky_relu":
+                if activation == "prelu" and prelu_slopes is not None:
+                    s_slice = prelu_slopes[p * 4 : (p + 1) * 4]
+                    expr = f"max(result{p}, result{p} * V4({_fmt_floats(s_slice)}))"
+                elif activation == "silu":
+                    expr = f"(result{p} / (V4(1.0) + exp(-result{p})))"
+                elif activation == "leaky_relu":
                     expr = f"max(result{p}, result{p} * F({leaky_slope:.6g}))"
                 else:
                     expr = f"max(result{p}, V4(0.0))"
             else:
                 expr = f"result{p}"
-            lines.append(f"    imageStore(out_image, output_base + ivec2({tx}, {ty}), {expr});")
+            if local_skip_name:
+                lines.append(f"    V4 act{p} = {expr};")
+                lines.append(
+                    f"    V4 sk{p} = V4({local_skip_name}_mul * texelFetch({local_skip_name}_raw, output_base + ivec2({tx}, {ty}), 0));"
+                )
+                if span_attention:
+                    lines.append(f"    V4 out{p} = (act{p} + sk{p}) * (V4(1.0) / (V4(1.0) + exp(-act{p})) + V4(0.5));")
+                else:
+                    lines.append(f"    V4 out{p} = act{p} + sk{p};")
+                lines.append(f"    imageStore(out_image, output_base + ivec2({tx}, {ty}), out{p});")
+            else:
+                lines.append(f"    imageStore(out_image, output_base + ivec2({tx}, {ty}), {expr});")
 
     lines.append("}\n")
     return "\n".join(lines)
@@ -290,9 +330,11 @@ def export_artcnn_glsl(
     )
 
     # internal conv1..convN (activated)
+    dil_set = set(cfg.dilated_layers)
     for i in range(1, cfg.internal_layers + 1):
         name, layer = layers[i]
         prev_name = layers[i - 1][0]
+        lskip = layers[i - 2][0] if (cfg.local_residuals and i % 2 == 0) else None
         parts.append(
             _emit_conv_pass(
                 layer_name=name,
@@ -303,6 +345,10 @@ def export_artcnn_glsl(
                 activation=cfg.activation,
                 leaky_slope=cfg.leaky_slope,
                 grouped_kernel=grouped_kernels.get(name),
+                dilation=(2 if i in dil_set else 1),
+                prelu_slopes=(model.prelu_slopes.get(name) if cfg.activation == "prelu" else None),
+                local_skip_name=lskip,
+                span_attention=(cfg.span_attention and lskip is not None),
             )
         )
 

@@ -112,7 +112,7 @@ else:
             pre = grouped_fwd(h_act, *grouped[name], layer.b)
         else:
             pre = layer.forward(h_act)
-        h_act = model._act_forward(pre)
+        h_act = model._act_forward(pre, name)
     mix_name, mix_layer = model.layers()[-2]
     if mix_name in grouped:
         mg = grouped_fwd(h_act, *grouped[mix_name], mix_layer.b)
@@ -264,4 +264,13 @@ test("ycbcrToRgbaBT709Dithered stays within 1 LSB of undithered output", () => {
     maxDiff = Math.max(maxDiff, Math.abs(base[i] - dith[i]));
   }
   assert.ok(maxDiff <= 1, `Expected <= 1 LSB diff, got ${maxDiff}`);
+});
+
+test("WGSL shader builders emit per-channel PRELU_SLOPES when activation is prelu", () => {
+  const slopes = [0.05, 0.10, 0.15, 0.20, 0.08, 0.12, 0.18, 0.22];
+  const dense = buildConvDenseShader({ cInV4: 2, cOutV4: 2, activation: "prelu", preluSlopes: slopes, useF16: false });
+  assert.match(dense, /const PRELU_SLOPES = array<vec4<f32>, 2>/);
+  assert.match(dense, /max\(acc, acc \* PRELU_SLOPES\[p\]\)/);
+  const grouped = buildConvGroupedShader({ gV4: 2, activation: "prelu", preluSlopes: slopes, useF16: true });
+  assert.match(grouped, /const PRELU_SLOPES = array<vec4<f16>, 2>/);
 });
