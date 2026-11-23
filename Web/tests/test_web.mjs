@@ -112,7 +112,7 @@ else:
             pre = grouped_fwd(h_act, *grouped[name], layer.b)
         else:
             pre = layer.forward(h_act)
-        h_act = model._act_forward(pre)
+        h_act = model._act_forward(pre, name)
     mix_name, mix_layer = model.layers()[-2]
     if mix_name in grouped:
         mg = grouped_fwd(h_act, *grouped[mix_name], mix_layer.b)

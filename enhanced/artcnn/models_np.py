@@ -165,7 +165,10 @@ class ArtCNNC:
         items.append((f"conv2d_{self.config.internal_layers + 2}", self.features))
         return items
 
-    def _act_forward(self, x: np.ndarray) -> np.ndarray:
+    def _act_forward(self, x: np.ndarray, layer_name: Optional[str] = None) -> np.ndarray:
+        if self.config.activation == "prelu" and layer_name and layer_name in self.prelu_slopes:
+            slopes = self.prelu_slopes[layer_name].reshape(1, -1, 1, 1)
+            return np.where(x > 0.0, x, x * slopes).astype(np.float32)
         if self.config.activation == "leaky_relu":
             s = self.config.leaky_slope
             return np.where(x > 0.0, x, x * s).astype(np.float32)
