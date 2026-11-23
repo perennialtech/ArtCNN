@@ -1,0 +1,94 @@
+{
+  "format": "artcnn-webgpu-rgb-catalog",
+  "version": 2,
+  "models": [
+    {
+      "id": "ArtCNN_C3F8_Clean",
+      "label": "C3F8 Clean",
+      "description": "Ultra-lightweight 2x clean RGB upscaler for low-power GPUs and CPU fallback",
+      "family": "c",
+      "architecture": "C3F8",
+      "receptive_radius": 6,
+      "manifest": "ArtCNN_C3F8_Clean.json",
+      "weights": "ArtCNN_C3F8_Clean.bin",
+      "weights_bytes": 13744,
+      "weights_sha256": "007b306cf874003b1302583ec94898cd16efbcb344bd00c6c400e448c14f35f4",
+      "weights_f16": "ArtCNN_C3F8_Clean.f16.bin",
+      "weights_f16_bytes": 6872,
+      "weights_f16_sha256": "ed20620a1c3f49f8d3ef65c5872ccca3e1b9030b2217097c81c1bfa0c1f49c25",
+      "pareto": {
+        "psnr": 38.708,
+        "ssim": 0.97428,
+        "lpips": 0.04286,
+        "dists": 0.05658,
+        "pareto_optimal": true
+      }
+    },
+    {
+      "id": "ArtCNN_C4F16_Clean",
+      "label": "C4F16 Clean",
+      "description": "Fast 2x clean RGB upscaler for crisp lineart and everyday stills",
+      "family": "c",
+      "architecture": "C4F16",
+      "receptive_radius": 7,
+      "manifest": "ArtCNN_C4F16_Clean.json",
+      "weights": "ArtCNN_C4F16_Clean.bin",
+      "weights_bytes": 55152,
+      "weights_sha256": "332485fb6fd5a46890ab37cc317ac70f3158026a9e6cdc2200a2fcf0678e2d3c",
+      "weights_f16": "ArtCNN_C4F16_Clean.f16.bin",
+      "weights_f16_bytes": 27576,
+      "weights_f16_sha256": "93c810a6d93619ffa9a6dbc414d0e2451d73c6953a958038daee71ec06a89b65",
+      "pareto": {
+        "psnr": 39.006,
+        "ssim": 0.97604,
+        "lpips": 0.03804,
+        "dists": 0.05084,
+        "pareto_optimal": true
+      }
+    },
+    {
+      "id": "ArtCNN_C4F32_Clean",
+      "label": "C4F32 Clean",
+      "description": "Balanced 32-channel 2x clean RGB upscaler with sharper fine detail",
+      "family": "c",
+      "architecture": "C4F32",
+      "receptive_radius": 7,
+      "manifest": "ArtCNN_C4F32_Clean.json",
+      "weights": "ArtCNN_C4F32_Clean.bin",
+      "weights_bytes": 202416,
+      "weights_sha256": "6b9a1779dc5db209acd6eac7d327fdeba2b1db4453b0248f1cd789d7e659b6b8",
+      "weights_f16": "ArtCNN_C4F32_Clean.f16.bin",
+      "weights_f16_bytes": 101208,
+      "weights_f16_sha256": "50f5036be6b4e4df16fb53a8fb9ed038a679a1d2bd4b530215286a560f689c19",
+      "pareto": {
+        "psnr": 39.384,
+        "ssim": 0.97796,
+        "lpips": 0.03262,
+        "dists": 0.04436,
+        "pareto_optimal": true
+      }
+    },
+    {
+      "id": "ArtCNN_R6F48_Clean",
+      "label": "R6F48 Clean",
+      "description": "Maximum-quality 2x clean RGB residual upscaler for still illustrations",
+      "family": "r",
+      "architecture": "R6F48",
+      "receptive_radius": 15,
+      "manifest": "ArtCNN_R6F48_Clean.json",
+      "weights": "ArtCNN_R6F48_Clean.bin",
+      "weights_bytes": 1106928,
+      "weights_sha256": "9b0b5e09fc7fa585aa4e9534e487f310dffa3d12db6360aafdcf11db18f30d1a",
+      "weights_f16": "ArtCNN_R6F48_Clean.f16.bin",
+      "weights_f16_bytes": 553464,
+      "weights_f16_sha256": "8baa609d584cf3fe7d4082e07add8f999900f3fe1d10940df0cad6f0afa4abbe",
+      "pareto": {
+        "psnr": 39.844,
+        "ssim": 0.97993,
+        "lpips": 0.02783,
+        "dists": 0.03717,
+        "pareto_optimal": true
+      }
+    }
+  ]
+}

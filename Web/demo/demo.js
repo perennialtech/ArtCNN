@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: 2026 perennialtech contributors
 // SPDX-License-Identifier: MIT
 
-import { createUpscaler, detectWebGPUSupport, loadModel } from "../src/index.js";
+import { createWorkerUpscaler, detectWebGPUSupport } from "../src/index.js";
 
 const MODELS_BASE = new URL("../models/", import.meta.url);
 
 const modelSelect = document.getElementById("modelSelect");
+const scaleSelect = document.getElementById("scaleSelect");
 const backendSelect = document.getElementById("backendSelect");
+const zoomSelect = document.getElementById("zoomSelect");
 const curtain = document.getElementById("curtain");
 const curtainHandle = document.getElementById("curtainHandle");
 const rightLabel = document.getElementById("rightLabel");
@@ -20,40 +22,28 @@ const sampleBtn = document.getElementById("sampleBtn");
 const downloadBtn = document.getElementById("downloadBtn");
 const fileInput = document.getElementById("fileInput");
 const dropZone = document.getElementById("dropZone");
+const viewerWrap = document.getElementById("viewerWrap");
 const viewer = document.getElementById("viewer");
-const videoControls = document.getElementById("videoControls");
-const playPauseBtn = document.getElementById("playPauseBtn");
-const videoName = document.getElementById("videoName");
+const outputCanvas = document.getElementById("outputCanvas");
+const progressBar = document.getElementById("progressBar");
+const progressFill = document.getElementById("progressFill");
 
-let outputCanvas = document.getElementById("outputCanvas");
 let catalog = [];
-const modelCache = new Map();
 let upscaler = null;
-let currentSource = null;
-let currentVideo = null;
-let videoLoopActive = false;
+let currentSrcData = null;
+let lastOutData = null;
+let lastSrcCanvas = null;
+let lastUpCanvas = null;
 let split = 0.5;
+let renderSeq = 0;
 let webgpuSupport = { available: false, f16: false };
 
-function replaceCanvas() {
-  // WebGPU and Canvas2D contexts are mutually exclusive per <canvas> element.
-  const fresh = document.createElement("canvas");
-  fresh.id = "outputCanvas";
-  outputCanvas.replaceWith(fresh);
-  outputCanvas = fresh;
-}
-
-/**
- * Generate a crisp cel-shaded dusk crossing scene at 400x240 so lineart,
- * diagonal cables, and flat shading show the 2x upscaling gain clearly.
- */
-function createSampleSource(width = 400, height = 240) {
+function createSampleImageData(width = 400, height = 240) {
   const c = document.createElement("canvas");
   c.width = width;
   c.height = height;
   const ctx = c.getContext("2d");
 
-  // Dusk sky gradient
   const sky = ctx.createLinearGradient(0, 0, 0, height * 0.72);
   sky.addColorStop(0, "#1d3568");
   sky.addColorStop(0.48, "#4b79bd");
@@ -62,7 +52,6 @@ function createSampleSource(width = 400, height = 240) {
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, width, height);
 
-  // Soft cel cloud bands
   ctx.fillStyle = "rgba(255, 241, 224, 0.78)";
   ctx.beginPath();
   ctx.moveTo(0, 126);
@@ -74,13 +63,11 @@ function createSampleSource(width = 400, height = 240) {
   ctx.closePath();
   ctx.fill();
 
-  // Sun disk
   ctx.fillStyle = "#fff6dc";
   ctx.beginPath();
   ctx.arc(286, 84, 24, 0, Math.PI * 2);
   ctx.fill();
 
-  // Distant mountain silhouette
   ctx.fillStyle = "#3a4a78";
   ctx.beginPath();
   ctx.moveTo(0, 168);
@@ -95,7 +82,6 @@ function createSampleSource(width = 400, height = 240) {
   ctx.closePath();
   ctx.fill();
 
-  // Midground cel-shaded buildings with dark ink outlines
   const buildings = [
     { x: 16, y: 122, w: 68, h: 118, fill: "#2a3350", shade: "#20273e" },
     { x: 90, y: 144, w: 54, h: 96, fill: "#313b5c", shade: "#252d47" },
@@ -111,7 +97,6 @@ function createSampleSource(width = 400, height = 240) {
     ctx.strokeRect(b.x, b.y, b.w, b.h);
   }
 
-  // Warm lit apartment windows
   ctx.fillStyle = "#ffe09a";
   for (let row = 0; row < 4; row++) {
     for (let col = 0; col < 3; col++) {
@@ -125,15 +110,13 @@ function createSampleSource(width = 400, height = 240) {
     }
   }
 
-  // Vermilion railway crossing bar & utility pole (classic high-contrast anime edges)
   ctx.fillStyle = "#171c2b";
   ctx.fillRect(198, 42, 7, 198);
   ctx.fillRect(172, 62, 58, 4);
   ctx.fillRect(178, 82, 46, 3);
 
-  // Diagonal overhead catenary wires
-  ctx.strokeStyle = "#111521";
-  ctx.lineWidth = 1.1;
+  ctx.strokeStyle = "#d94f3d";
+  ctx.lineWidth = 1.3;
   const wires = [
     [0, 52, 400, 74],
     [0, 64, 400, 92],
@@ -147,7 +130,6 @@ function createSampleSource(width = 400, height = 240) {
     ctx.stroke();
   }
 
-  // Crossing X sign
   ctx.strokeStyle = "#f2f4f8";
   ctx.lineWidth = 4.5;
   ctx.beginPath();
@@ -160,7 +142,6 @@ function createSampleSource(width = 400, height = 240) {
   ctx.lineWidth = 1.1;
   ctx.strokeRect(184, 150, 35, 35);
 
-  // Striped yellow/black crossing barrier
   ctx.save();
   ctx.translate(154, 198);
   ctx.rotate(-0.08);
@@ -175,26 +156,97 @@ function createSampleSource(width = 400, height = 240) {
   ctx.strokeRect(0, 0, 146, 8);
   ctx.restore();
 
-  return c;
+  return ctx.getImageData(0, 0, width, height);
+}
+
+function presentSplit() {
+  if (!lastSrcCanvas || !lastUpCanvas) return;
+  const ctx = outputCanvas.getContext("2d");
+  const outW = outputCanvas.width;
+  const outH = outputCanvas.height;
+  const cut = Math.round(outW * Math.max(0, Math.min(1, split)));
+  ctx.drawImage(lastUpCanvas, 0, 0);
+  if (cut > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, cut, outH);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(lastSrcCanvas, 0, 0, outW, outH);
+    ctx.restore();
+  }
 }
 
 function updateSplitUI() {
   const pct = Math.round(split * 100);
   curtain.style.left = `${split * 100}%`;
   curtainHandle.setAttribute("aria-valuenow", String(pct));
-  if (upscaler && !videoLoopActive) {
-    upscaler.presentOnly(outputCanvas, split);
+  presentSplit();
+}
+
+function applyZoom() {
+  const mode = zoomSelect.value;
+  if (mode === "fit" || !lastOutData) {
+    viewerWrap.classList.remove("zoomed");
+    outputCanvas.style.width = "";
+    outputCanvas.style.height = "";
+  } else {
+    const factor = Number(mode);
+    viewerWrap.classList.add("zoomed");
+    outputCanvas.style.width = `${lastOutData.width * factor}px`;
+    outputCanvas.style.height = `${lastOutData.height * factor}px`;
   }
 }
 
-async function getModel(entry, precision) {
-  const key = `${entry.id}:${precision}`;
-  if (!modelCache.has(key)) {
-    const manifestUrl = new URL(entry.manifest, MODELS_BASE).href;
-    const loaded = await loadModel(manifestUrl, { precision });
-    modelCache.set(key, loaded);
-  }
-  return modelCache.get(key);
+async function renderStill() {
+  if (!upscaler || !currentSrcData) return;
+  const seq = ++renderSeq;
+  const scale = Number(scaleSelect.value) || 2;
+  const entry = catalog[modelSelect.selectedIndex];
+
+  progressBar.classList.add("active");
+  progressFill.style.width = "4%";
+  downloadBtn.disabled = true;
+
+  const t0 = performance.now();
+  const outRgba = await upscaler.upscaleRgba(currentSrcData.data, currentSrcData.width, currentSrcData.height, {
+    scale,
+    tileSize: 256,
+    onProgress: (p) => {
+      if (seq === renderSeq) {
+        progressFill.style.width = `${Math.round(p * 100)}%`;
+      }
+    },
+  });
+  if (seq !== renderSeq) return;
+
+  const elapsed = performance.now() - t0;
+  const outW = currentSrcData.width * scale;
+  const outH = currentSrcData.height * scale;
+  lastOutData = new ImageData(outRgba, outW, outH);
+
+  lastSrcCanvas = document.createElement("canvas");
+  lastSrcCanvas.width = currentSrcData.width;
+  lastSrcCanvas.height = currentSrcData.height;
+  lastSrcCanvas.getContext("2d").putImageData(currentSrcData, 0, 0);
+
+  lastUpCanvas = document.createElement("canvas");
+  lastUpCanvas.width = outW;
+  lastUpCanvas.height = outH;
+  lastUpCanvas.getContext("2d").putImageData(lastOutData, 0, 0);
+
+  outputCanvas.width = outW;
+  outputCanvas.height = outH;
+  applyZoom();
+  presentSplit();
+
+  sizeReadout.textContent = `${currentSrcData.width}x${currentSrcData.height} -> ${outW}x${outH}`;
+  timingReadout.textContent = `${elapsed.toFixed(1)} ms`;
+  rightLabel.textContent = `${entry?.label || "ArtCNN"} (${scale}x)`;
+  progressBar.classList.remove("active");
+  progressFill.style.width = "0%";
+  downloadBtn.disabled = false;
 }
 
 async function rebuildUpscaler() {
@@ -206,113 +258,41 @@ async function rebuildUpscaler() {
   const dlBytes = useF16 ? entry.weights_f16_bytes : entry.weights_bytes;
   statusText.textContent = `Loading ${entry.label} (${(dlBytes / 1024).toFixed(1)} KB, ${targetPrecision})...`;
 
-  const previousBackend = upscaler?.backend;
   if (upscaler) {
     upscaler.destroy();
     upscaler = null;
   }
 
-  const model = await getModel(entry, targetPrecision);
-  let fallbackNotice = "";
-  try {
-    upscaler = await createUpscaler({ model, backend: requested });
-  } catch (err) {
-    fallbackNotice = `${err.message} Using CPU instead. `;
-    upscaler = await createUpscaler({ model, backend: "cpu" });
-  }
-
-  if (previousBackend && previousBackend !== upscaler.backend) {
-    replaceCanvas();
-  }
+  const manifestUrl = new URL(entry.manifest, MODELS_BASE).href;
+  upscaler = await createWorkerUpscaler({
+    modelUrl: manifestUrl,
+    backend: requested,
+    precision: targetPrecision,
+  });
 
   const isGpu = upscaler.backend === "webgpu";
   engineDot.className = `engine-dot ${isGpu ? "webgpu" : "cpu"}`;
   engineLabel.textContent = isGpu ? `WebGPU (${upscaler.precision})` : "CPU";
-  rightLabel.textContent = entry.label;
-  statusText.textContent = `${fallbackNotice}${entry.description}. Files stay on your device.`;
+  statusText.textContent = `${entry.description}. Processing stays local in your browser.`;
 
-  if (currentSource && !currentVideo) {
-    renderStill();
+  if (currentSrcData) {
+    await renderStill();
   }
 }
 
-function renderStill() {
-  if (!upscaler || !currentSource) return;
-  const t0 = performance.now();
-  const { width, height } = upscaler.renderToCanvas(currentSource, outputCanvas, { split });
-  const elapsed = performance.now() - t0;
-  sizeReadout.textContent = `${width / 2}x${height / 2} to ${width}x${height}`;
-  timingReadout.textContent = `${elapsed.toFixed(1)} ms`;
-}
-
-function stopVideo() {
-  videoLoopActive = false;
-  if (currentVideo) {
-    currentVideo.pause();
-    URL.revokeObjectURL(currentVideo.src);
-    currentVideo = null;
-  }
-  videoControls.classList.remove("visible");
-}
-
-function startVideoLoop(video) {
-  videoLoopActive = true;
-  let emaMs = 0;
-
-  const step = () => {
-    if (!videoLoopActive || currentVideo !== video) return;
-    if (video.readyState >= 2 && upscaler) {
-      const t0 = performance.now();
-      const { width, height } = upscaler.renderToCanvas(video, outputCanvas, { split });
-      const dt = performance.now() - t0;
-      emaMs = emaMs === 0 ? dt : emaMs * 0.85 + dt * 0.15;
-      sizeReadout.textContent = `${width / 2}x${height / 2} to ${width}x${height}`;
-      timingReadout.textContent = `${emaMs.toFixed(1)} ms`;
-    }
-    if ("requestVideoFrameCallback" in video) {
-      video.requestVideoFrameCallback(step);
-    } else {
-      requestAnimationFrame(step);
-    }
-  };
-
-  if ("requestVideoFrameCallback" in video) {
-    video.requestVideoFrameCallback(step);
-  } else {
-    requestAnimationFrame(step);
-  }
-}
-
-async function handleFile(file) {
-  if (!file) return;
-  stopVideo();
-
+async function loadImageBlob(blob) {
   try {
-    if (file.type.startsWith("video/")) {
-      const video = document.createElement("video");
-      video.src = URL.createObjectURL(file);
-      video.loop = true;
-      video.muted = true;
-      video.playsInline = true;
-      await new Promise((resolve, reject) => {
-        video.onloadeddata = resolve;
-        video.onerror = () => reject(new Error("The browser could not decode this video format."));
-      });
-      currentVideo = video;
-      currentSource = video;
-      videoControls.classList.add("visible");
-      playPauseBtn.textContent = "Pause";
-      videoName.textContent = file.name;
-      await video.play();
-      startVideoLoop(video);
-      return;
-    }
-
-    const bitmap = await createImageBitmap(file);
-    currentSource = bitmap;
-    renderStill();
+    const bitmap = await createImageBitmap(blob);
+    const c = document.createElement("canvas");
+    c.width = bitmap.width;
+    c.height = bitmap.height;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    currentSrcData = ctx.getImageData(0, 0, c.width, c.height);
+    await renderStill();
   } catch (err) {
-    statusText.textContent = `${err.message} Try a PNG, JPEG, WebP, or MP4/WebM file.`;
+    statusText.textContent = `${err.message} Try a clean PNG, WebP, JPEG, or AVIF image.`;
   }
 }
 
@@ -331,16 +311,18 @@ async function init() {
     const bytes = support.f16 && entry.weights_f16_bytes ? entry.weights_f16_bytes : entry.weights_bytes;
     const kb = bytes < 10240 ? (bytes / 1024).toFixed(1) : Math.round(bytes / 1024);
     opt.textContent = `${entry.label} (${kb} KB)`;
-    if (entry.id === "ArtCNN_C4F16_Restore") opt.selected = true;
+    if (entry.id === "ArtCNN_C4F32_Clean") opt.selected = true;
     modelSelect.appendChild(opt);
   }
 
-  currentSource = createSampleSource();
+  currentSrcData = createSampleImageData();
   await rebuildUpscaler();
   updateSplitUI();
 
   modelSelect.addEventListener("change", rebuildUpscaler);
   backendSelect.addEventListener("change", rebuildUpscaler);
+  scaleSelect.addEventListener("change", renderStill);
+  zoomSelect.addEventListener("change", applyZoom);
 
   let dragging = false;
   const setSplitFromEvent = (e) => {
@@ -371,35 +353,27 @@ async function init() {
   });
 
   openFileBtn.addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", () => handleFile(fileInput.files?.[0]));
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    if (file) loadImageBlob(file);
+  });
   sampleBtn.addEventListener("click", () => {
-    stopVideo();
-    currentSource = createSampleSource();
+    currentSrcData = createSampleImageData();
     renderStill();
   });
 
-  downloadBtn.addEventListener("click", async () => {
-    if (!upscaler || !currentSource) return;
-    const imgData = await upscaler.upscaleToImageData(currentSource);
-    const tmp = document.createElement("canvas");
-    tmp.width = imgData.width;
-    tmp.height = imgData.height;
-    tmp.getContext("2d").putImageData(imgData, 0, 0);
-    const link = document.createElement("a");
-    link.download = `${catalog[modelSelect.selectedIndex]?.id || "artcnn"}_2x.png`;
-    link.href = tmp.toDataURL("image/png");
-    link.click();
-  });
-
-  playPauseBtn.addEventListener("click", () => {
-    if (!currentVideo) return;
-    if (currentVideo.paused) {
-      currentVideo.play();
-      playPauseBtn.textContent = "Pause";
-    } else {
-      currentVideo.pause();
-      playPauseBtn.textContent = "Play";
-    }
+  downloadBtn.addEventListener("click", () => {
+    if (!lastUpCanvas) return;
+    const scale = Number(scaleSelect.value) || 2;
+    lastUpCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.download = `${catalog[modelSelect.selectedIndex]?.id || "artcnn"}_${scale}x.png`;
+      link.href = url;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, "image/png");
   });
 
   dropZone.addEventListener("dragover", (e) => {
@@ -410,7 +384,21 @@ async function init() {
   dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     dropZone.classList.remove("dragover");
-    handleFile(e.dataTransfer?.files?.[0]);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) loadImageBlob(file);
+  });
+
+  window.addEventListener("paste", (e) => {
+    const items = e.clipboardData?.items || [];
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          loadImageBlob(file);
+          break;
+        }
+      }
+    }
   });
 
   window.__artcnnDemo = {
@@ -419,13 +407,12 @@ async function init() {
         backend: upscaler?.backend,
         precision: upscaler?.precision,
         model: catalog[modelSelect.selectedIndex]?.id,
+        scale: Number(scaleSelect.value),
+        zoom: zoomSelect.value,
         width: outputCanvas.width,
         height: outputCanvas.height,
         timing: timingReadout.textContent,
       };
-    },
-    async upscaleCurrent() {
-      return upscaler.upscaleToImageData(currentSource);
     },
   };
 }

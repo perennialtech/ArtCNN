@@ -37,7 +37,6 @@ body {
   grid-template-rows: auto 1fr auto;
 }
 
-/* Top masthead */
 .masthead {
   display: flex;
   flex-wrap: wrap;
@@ -120,7 +119,6 @@ body {
   text-underline-offset: 3px;
 }
 
-/* Hero inspection stage */
 .stage {
   position: relative;
   display: flex;
@@ -128,12 +126,12 @@ body {
   justify-content: center;
   padding: 24px;
   background: var(--mat);
-  overflow: hidden;
+  overflow: auto;
   min-height: 360px;
 }
 
 .stage.dragover::after {
-  content: "Drop image or video to upscale 2x";
+  content: "Drop a clean still image to upscale";
   position: absolute;
   inset: 14px;
   display: flex;
@@ -149,11 +147,23 @@ body {
   z-index: 10;
 }
 
+.viewer-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: calc(100dvh - 190px);
+}
+
+.viewer-wrap.zoomed {
+  max-width: none;
+  max-height: none;
+  margin: auto;
+}
+
 .viewer {
   position: relative;
   display: inline-block;
-  max-width: 100%;
-  max-height: calc(100dvh - 190px);
   line-height: 0;
   user-select: none;
   touch-action: none;
@@ -168,6 +178,12 @@ body {
   max-height: calc(100dvh - 190px);
   width: auto;
   height: auto;
+  image-rendering: pixelated;
+}
+
+.viewer-wrap.zoomed #outputCanvas {
+  max-width: none;
+  max-height: none;
 }
 
 .curtain {
@@ -237,7 +253,29 @@ body {
   right: 12px;
 }
 
-/* Bottom inspection rail */
+.progress-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+
+.progress-bar.active {
+  opacity: 1;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--signal);
+  transition: width 80ms linear;
+}
+
 .rail {
   background: var(--surface);
   border-top: 1px solid var(--rule);
@@ -286,8 +324,7 @@ button {
 }
 
 select:focus-visible,
-button:focus-visible,
-input[type="range"]:focus-visible {
+button:focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;
 }
@@ -330,17 +367,7 @@ button:disabled {
 
 .rail-meta p {
   margin: 0;
-  max-width: 72ch;
-}
-
-.video-controls {
-  display: none;
-  align-items: center;
-  gap: 10px;
-}
-
-.video-controls.visible {
-  display: inline-flex;
+  max-width: 78ch;
 }
 
 #fileInput {
