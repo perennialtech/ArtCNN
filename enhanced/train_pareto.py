@@ -32,6 +32,7 @@ from artcnn.glsl_export import export_artcnn_glsl
 from artcnn.models_np import ArtCNNC, ArtCNNCConfig
 from artcnn.perceptual import (
     AlexNetLPIPS,
+    ClipAnimeIQA,
     DISTS,
     FoldableECB,
     FoldableGroupedECB,
@@ -537,6 +538,8 @@ def pixel_loss(
     dists_fn=None,
     dists_weight=0.0,
     distill_dists_weight=0.0,
+    clip_iqa_fn=None,
+    clip_iqa_weight=0.0,
 ):
     p = pred.float()[:, :, 12:-12, 12:-12]
     t = target[:, :, 12:-12, 12:-12]
@@ -558,6 +561,8 @@ def pixel_loss(
         objective = objective + lpips_weight * lpips_fn(p.clamp(0.0, 1.0), t)
     if dists_fn is not None and dists_weight > 0:
         objective = objective + dists_weight * dists_fn(p.clamp(0.0, 1.0), t)
+    if clip_iqa_fn is not None and clip_iqa_weight > 0:
+        objective = objective + clip_iqa_weight * clip_iqa_fn(p.clamp(0.0, 1.0), t)
     if teacher is not None:
         t_crop = teacher.float()[:, :, 12:-12, 12:-12]
         imitation = p.clamp(0.0, 1.0) - t_crop
@@ -640,6 +645,8 @@ def train(args):
         elif args.lpips_weight > 0:
             raise RuntimeError("Requested --lpips-weight > 0 but AlexNet/LPIPS weights were not found")
 
+    clip_iqa_fn = ClipAnimeIQA().to(cuda) if args.clip_iqa_weight > 0 else None
+
     dists_fn = None
     if args.dists_weight > 0 or args.select_metric == "perceptual":
         found_d = find_dists_weights()
@@ -713,6 +720,8 @@ def train(args):
             dists_fn=dists_fn,
             dists_weight=args.dists_weight,
             distill_dists_weight=args.distill_dists_weight,
+            clip_iqa_fn=clip_iqa_fn,
+            clip_iqa_weight=args.clip_iqa_weight,
         )
         if args.ldl_weight > 0 and step > 20:
             with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
@@ -836,6 +845,7 @@ def main():
     parser.add_argument("--v4-degradation", action="store_true")
     parser.add_argument("--hard-mining", action="store_true")
     parser.add_argument("--fp16-qat", action="store_true")
+    parser.add_argument("--clip-iqa-weight", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=41001)
     train(parser.parse_args())
 

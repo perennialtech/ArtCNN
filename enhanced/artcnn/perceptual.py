@@ -495,3 +495,80 @@ def ldl_artifact_loss(
     artifact_map = F.relu(var_p - var_e).sqrt()
     artifact_map = artifact_map * (r_p.abs() / (r_e.abs() + 1e-3)).clamp(0.0, 5.0)
     return (artifact_map.detach() * torch.sqrt(r_p * r_p + eps)).mean()
+
+
+class ClipAnimeIQA(nn.Module):
+    """Differentiable CLIP-IQA + semantic fidelity loss for anime perceptual SR.
+
+    Uses a frozen OpenCLIP ViT-B-32 encoder to score outputs against antonym
+    anime-quality text prompts (NR-IQA) combined with cosine feature similarity
+    to the ground-truth patch (preventing semantic drift/hallucination).
+    Strictly training-only (0% inference cost).
+    """
+
+    PROMPT_PAIRS = (
+        ("a crisp, sharp, high-definition anime frame with clean lineart",
+         "a blurry, noisy, compressed anime frame with ringing artifacts"),
+        ("clean detailed 2D animation artwork",
+         "low resolution pixelated smeared animation"),
+        ("sharp high-contrast cel lineart",
+         "soft blurry aliased edges with compression blocks"),
+    )
+
+    def __init__(
+        self,
+        model_name: str = "ViT-B-32",
+        pretrained: str = "laion2b_s34b_b79k",
+        semantic_weight: float = 0.5,
+    ):
+        super().__init__()
+        import open_clip
+
+        model, _, _ = open_clip.create_model_and_transforms(model_name, pretrained=pretrained)
+        tokenizer = open_clip.get_tokenizer(model_name)
+        self.visual = model.visual
+        self.visual.eval().requires_grad_(False)
+        self.semantic_weight = float(semantic_weight)
+
+        pos_texts = [p[0] for p in self.PROMPT_PAIRS]
+        neg_texts = [p[1] for p in self.PROMPT_PAIRS]
+        with torch.no_grad():
+            pos_emb = F.normalize(model.encode_text(tokenizer(pos_texts)), dim=-1)
+            neg_emb = F.normalize(model.encode_text(tokenizer(neg_texts)), dim=-1)
+        self.register_buffer("pos_emb", pos_emb.float())
+        self.register_buffer("neg_emb", neg_emb.float())
+        self.register_buffer("mean", torch.tensor([0.48145466, 0.4578275, 0.40821073]).view(1, 3, 1, 1))
+        self.register_buffer("std", torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 3, 1, 1))
+        self.eval().requires_grad_(False)
+
+    def _encode(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[1] == 1:
+            x = x.expand(-1, 3, -1, -1)
+        if x.shape[-2:] != (224, 224):
+            x = F.interpolate(x, size=(224, 224), mode="bilinear", align_corners=False)
+        x = (x - self.mean.to(x.dtype)) / self.std.to(x.dtype)
+        feat = self.visual(x)
+        return F.normalize(feat.float(), dim=-1)
+
+    @torch.no_grad()
+    def quality_score(self, x: torch.Tensor) -> torch.Tensor:
+        """Return NR-IQA quality score in [0, 1] (higher = sharper/cleaner anime)."""
+        feat = self._encode(x.clamp(0.0, 1.0))
+        sim_pos = (feat @ self.pos_emb.T) * 20.0
+        sim_neg = (feat @ self.neg_emb.T) * 20.0
+        probs = torch.sigmoid(sim_pos - sim_neg)
+        return probs.mean(dim=-1)
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor, max_samples: int = 8) -> torch.Tensor:
+        """Return scalar differentiable loss combining NR-IQA (1 - quality) and semantic fidelity."""
+        if pred.shape[0] > max_samples:
+            pred = pred[:max_samples]
+            target = target[:max_samples]
+        f_pred = self._encode(pred.clamp(0.0, 1.0))
+        with torch.no_grad():
+            f_tgt = self._encode(target.clamp(0.0, 1.0))
+        sim_pos = (f_pred @ self.pos_emb.T) * 20.0
+        sim_neg = (f_pred @ self.neg_emb.T) * 20.0
+        nr_loss = (1.0 - torch.sigmoid(sim_pos - sim_neg)).mean()
+        sem_loss = (1.0 - (f_pred * f_tgt).sum(dim=-1)).mean()
+        return nr_loss + self.semantic_weight * sem_loss
