@@ -1,7 +1,7 @@
 [project]
 name = "artcnn"
-version = "0.0.0"
-description = "ArtCNN inference, benchmarking, and training scripts"
+version = "0.2.0"
+description = "Pareto-efficient clean-still RGB upscaling for browser WebGPU inference"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
@@ -11,30 +11,18 @@ dependencies = [
 ]
 
 [dependency-groups]
-inference = ["onnxruntime>=1.32"]
-directml = ["onnxruntime-directml; sys_platform == 'win32' and platform_machine == 'AMD64'"]
-openvino = ["openvino>=2026.4"]
-onnx = ["onnx", "onnxconverter-common"]
 benchmarks = ["matplotlib", "scikit-image", "scipy"]
 training = [
-    "onnx",
     "scipy",
     "torch==2.15.0; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
 ]
-dataset = ["tqdm"]
-jax-metrics = ["dm-pix", "jax"]
 
 [tool.uv]
 package = false
-default-groups = ["inference"]
 environments = ["sys_platform != 'darwin' or platform_machine == 'arm64'"]
-# Use the published OpenCV wheels, which require macOS 15 or newer.
 no-build-package = ["opencv-python-headless"]
-# Both wheels provide the onnxruntime module.
-conflicts = [[{ group = "inference" }, { group = "directml" }]]
 
 [tool.uv.dependency-groups]
-# PyTorch's CUDA wheels are available through Python 3.15.
 training = { requires-python = ">=3.12,<3.16" }
 
 [tool.uv.sources]
